@@ -29,7 +29,7 @@ export const DEFAULT_TEMPLATE: RuleTemplate = {
     colorCodeMap: {
       R: '#e53e3e', B: '#3182ce', G: '#38a169', Y: '#d69e2e',
       W: '#a0aec0', Br: '#8B4513', O: '#dd6b20', P: '#ed64a6',
-      V: '#805ad5', Gr: '#718096',
+      V: '#805ad5', Gr: '#718096', Black: '#333333',
     },
     multiColorSeparator: '/',
     primaryWidth: 4,

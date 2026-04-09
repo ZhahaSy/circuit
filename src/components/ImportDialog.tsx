@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { CircuitData } from '../types';
 import { sampleCircuit } from '../sampleData';
+import { wirelessChargingCircuit } from '../wirelessChargingData';
 
 interface Props {
   onImport: (data: CircuitData) => void;
@@ -58,6 +59,9 @@ export function ImportDialog({ onImport, onClose }: Props) {
           <div style={{ fontSize: 12, color: '#718096', marginBottom: 8 }}>或加载示例数据：</div>
           <button onClick={() => onImport(sampleCircuit)} style={sampleBtn}>
             前照灯系统电路图（示例）
+          </button>
+          <button onClick={() => onImport(wirelessChargingCircuit)} style={{ ...sampleBtn, marginLeft: 8 }}>
+            无线充电系统电路图
           </button>
         </div>
 

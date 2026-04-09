@@ -31,8 +31,8 @@ export interface Wire {
   id: string;
   from: { nodeId: string; pin?: string };
   to: { nodeId: string; pin?: string };
-  color: string;        // 线色 "R", "W/G", "Br"
-  gauge: number;        // 线径 mm²
+  color?: string;       // 线色 "R", "W/G", "Br"
+  gauge?: number;       // 线径 mm²
   label?: string;       // 额外标注
 }
 
@@ -40,6 +40,8 @@ export interface LayerConfig {
   id: string;
   label: string;
   types: ComponentType[];
+  /** 精确指定属于该层的节点 ID（拓扑分层时使用，优先于 types） */
+  nodeIds?: string[];
 }
 
 export interface FuseBoxConfig {

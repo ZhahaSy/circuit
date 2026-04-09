@@ -94,6 +94,18 @@ function buildFullAdj(wires: Wire[]): Map<string, string[]> {
   return adj;
 }
 
+// ── Node bounding box half-widths (for overlap detection) ──
+
+const NODE_HALF_WIDTHS: Partial<Record<ComponentType, number>> = {
+  power: 12, ground: 14, fuse: 16, relay: 30, switch: 16,
+  splice: 12, connector: 22, connector_plug: 16, ecu: 52,
+  sensor: 24, actuator: 24, resistor: 20, capacitor: 16,
+  diode: 16, transistor: 16, ic: 32,
+};
+
+/** Minimum gap between node bounding boxes */
+const MIN_NODE_GAP = 20;
+
 // ── X assignment ──
 
 function assignX(
@@ -117,6 +129,66 @@ function assignX(
     const effectiveSpacing = inlineGap ? Math.max(spacing, inlineGap) : spacing;
     nodes.forEach((node, i) => {
       positions.set(node.id, { x: LAYOUT.marginLeft + effectiveSpacing * (i + 1), y });
+    });
+  }
+
+  // Post-pass: resolve node overlaps within this layer
+  resolveNodeOverlaps(nodes, positions, y);
+}
+
+/** Push overlapping nodes apart so their bounding boxes don't intersect */
+function resolveNodeOverlaps(
+  nodes: CircuitNode[],
+  positions: Map<string, NodePosition>,
+  y: number,
+) {
+  if (nodes.length < 2) return;
+
+  // Sort by current X
+  const sorted = [...nodes].sort((a, b) => {
+    const pa = positions.get(a.id)!;
+    const pb = positions.get(b.id)!;
+    return pa.x - pb.x;
+  });
+
+  // Push right if overlapping
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const cur = sorted[i];
+    const prevPos = positions.get(prev.id)!;
+    const curPos = positions.get(cur.id)!;
+
+    const prevHalfW = NODE_HALF_WIDTHS[prev.type] ?? 20;
+    const curHalfW = NODE_HALF_WIDTHS[cur.type] ?? 20;
+    const minDist = prevHalfW + curHalfW + MIN_NODE_GAP;
+
+    if (curPos.x - prevPos.x < minDist) {
+      positions.set(cur.id, { x: prevPos.x + minDist, y });
+    }
+  }
+
+  // Re-center the group within the usable area
+  const usable = LAYOUT.width - LAYOUT.marginLeft - LAYOUT.marginRight;
+  const firstX = positions.get(sorted[0].id)!.x;
+  const lastX = positions.get(sorted[sorted.length - 1].id)!.x;
+  const groupWidth = lastX - firstX;
+  const idealCenter = LAYOUT.marginLeft + usable / 2;
+  const currentCenter = (firstX + lastX) / 2;
+  const shift = idealCenter - currentCenter;
+
+  // Only shift if the group fits within bounds
+  if (firstX + shift >= LAYOUT.marginLeft && lastX + shift <= LAYOUT.width - LAYOUT.marginRight) {
+    for (const node of sorted) {
+      const pos = positions.get(node.id)!;
+      positions.set(node.id, { x: pos.x + shift, y });
+    }
+  } else if (groupWidth > usable) {
+    // Group is wider than available space — compress to fit
+    const startX = LAYOUT.marginLeft + (NODE_HALF_WIDTHS[sorted[0].type] ?? 20);
+    const endX = LAYOUT.width - LAYOUT.marginRight - (NODE_HALF_WIDTHS[sorted[sorted.length - 1].type] ?? 20);
+    const step = (endX - startX) / (sorted.length - 1);
+    sorted.forEach((node, i) => {
+      positions.set(node.id, { x: startX + step * i, y });
     });
   }
 }
@@ -290,11 +362,27 @@ export function computePositions(
   const nonPowerTopMargin = busBarHeight > 0 ? busBarTopY + busBarHeight + 20 : LAYOUT.topMargin;
   const layerYMap = computeLayerYPositionsWithOffset(nonPowerLayers, nonPowerTopMargin, layoutRules);
 
+  // ── Build nodeId → Y mapping ──
+  // If layers have nodeIds (topo mode), use those for precise assignment.
+  // Otherwise fall back to type-based matching.
+  const nodeIdToY = new Map<string, number>();
+  for (const layer of nonPowerLayers) {
+    const y = layerYMap.get(layer.id)!;
+    if (layer.nodeIds) {
+      for (const nid of layer.nodeIds) {
+        nodeIdToY.set(nid, y);
+      }
+    }
+  }
+
   const typeToY = new Map<ComponentType, number>();
   for (const layer of nonPowerLayers) {
     const y = layerYMap.get(layer.id)!;
-    for (const t of layer.types) {
-      typeToY.set(t, y);
+    // Only set type→Y if no nodeIds (template mode)
+    if (!layer.nodeIds) {
+      for (const t of layer.types) {
+        typeToY.set(t, y);
+      }
     }
   }
 
@@ -307,7 +395,7 @@ export function computePositions(
   const nodeLayerY = new Map<string, number>();
 
   for (const node of nonPowerNodes) {
-    const y = typeToY.get(node.type) ?? fallbackY;
+    const y = nodeIdToY.get(node.id) ?? typeToY.get(node.type) ?? fallbackY;
     nodeLayerY.set(node.id, y);
     if (!bucketMap.has(y)) bucketMap.set(y, []);
     bucketMap.get(y)!.push(node);

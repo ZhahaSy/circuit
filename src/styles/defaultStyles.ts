@@ -34,15 +34,15 @@ export function parseWireColor(
 }
 
 const NODE_TYPE_STYLES: Record<string, NodeStyleConfig> = {
-  power: { fill: 'none', stroke: '#e53e3e', strokeWidth: 2, textColor: '#333', fontSize: 11 },
-  ground: { fill: 'none', stroke: '#333', strokeWidth: 2, textColor: '#333', fontSize: 11 },
-  fuse: { fill: '#fff3cd', stroke: '#d69e2e', strokeWidth: 2, textColor: '#333', fontSize: 9 },
-  relay: { fill: '#e8f4fd', stroke: '#2b6cb0', strokeWidth: 2, textColor: '#2b6cb0', fontSize: 10 },
-  switch: { fill: 'none', stroke: '#805ad5', strokeWidth: 2, textColor: '#553c9a', fontSize: 10 },
-  splice: { fill: '#333', stroke: '#333', strokeWidth: 2, textColor: '#333', fontSize: 10 },
-  connector: { fill: '#ebf8ff', stroke: '#3182ce', strokeWidth: 2, textColor: '#2b6cb0', fontSize: 11 },
-  connector_plug: { fill: '#fefcbf', stroke: '#b7791f', strokeWidth: 2, textColor: '#744210', fontSize: 10 },
-  ecu: { fill: '#f0fff4', stroke: '#38a169', strokeWidth: 2, textColor: '#276749', fontSize: 11 },
+  power: { fill: 'none', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 10 },
+  ground: { fill: 'none', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 10 },
+  fuse: { fill: '#ccc', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 8 },
+  relay: { fill: '#fff', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 9 },
+  switch: { fill: 'none', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 9 },
+  splice: { fill: '#fff', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 9 },
+  connector: { fill: '#fff', stroke: '#040000', strokeWidth: 1, textColor: '#333', fontSize: 9 },
+  connector_plug: { fill: '#fff', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 9 },
+  ecu: { fill: '#ccc', stroke: '#000', strokeWidth: 0.5, textColor: '#333', fontSize: 10 },
 };
 
 export const defaultStyleConfig: StyleConfig = {
@@ -69,12 +69,22 @@ export function resolveNodeStyle(
 /** 解析线路最终样式，支持模板配置 */
 export function resolveWireStyle(
   wireId: string,
-  wireColor: string,
-  _gauge: number,
+  wireColor: string | undefined,
+  _gauge: number | undefined,
   config: StyleConfig,
   wireRules?: WireRuleConfig,
 ): { color: string; strokeWidth: number; dashArray?: string; opacity: number; secondaryColor?: string } {
-  const parsed = parseWireColor(wireColor, wireRules);
+  // 无 color 和 gauge 时使用 1px 黑色线
+  if (!wireColor && _gauge == null) {
+    return {
+      color: '#333333',
+      strokeWidth: 1,
+      dashArray: undefined,
+      opacity: config.defaultWire?.opacity ?? 1,
+      secondaryColor: undefined,
+    };
+  }
+  const parsed = parseWireColor(wireColor || '', wireRules);
   const baseWidth = wireRules?.primaryWidth ?? 4;
   const result = {
     color: parsed.primary,

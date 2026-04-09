@@ -181,33 +181,49 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
                 width={maxX - minX} height={maxY - minY}
                 rx={8} fill="#f7fafc" stroke="#a0aec0" strokeWidth={2} strokeDasharray="6 3" opacity={0.8}
               />
-              <text x={minX + 8} y={minY + 14} fontSize={9} fill="#718096" fontWeight="bold">{fb.label}</text>
+              <text x={maxX + 8} y={(minY + maxY) / 2} fontSize={9} fill="#718096" fontWeight="bold" dominantBaseline="central">{fb.label}</text>
             </g>
           );
         })}
 
         {/* 连线 */}
         <g id="wires">
-          {routed.map((r) => {
-            const ws = resolveWireStyle(r.wire.id, r.wire.color, r.wire.gauge, styleConfig, wireRules);
-            const isHovered = hoveredWireId === r.wire.id;
-            const dimmed = hoveredWireId !== null && !isHovered;
-            return (
-              <WirePath
-                key={r.wire.id}
-                routed={r}
-                color={ws.color}
-                strokeWidth={ws.strokeWidth}
-                dashArray={ws.dashArray}
-                opacity={ws.opacity}
-                secondaryColor={ws.secondaryColor}
-                separatorYs={separators}
-                dimmed={dimmed}
-                onHover={(id) => setHoveredWireId(id)}
-                wireRules={wireRules}
-              />
-            );
-          })}
+          {(() => {
+            // 计算所有 fuseBox 的边界矩形
+            const fuseBoxBounds = (data.fuseBoxes ?? []).map(fb => {
+              const childPositions = fb.children.map(id => positions.get(id)).filter(Boolean) as NodePosition[];
+              if (childPositions.length === 0) return null;
+              return {
+                minX: Math.min(...childPositions.map(p => p.x)) - 50,
+                maxX: Math.max(...childPositions.map(p => p.x)) + 50,
+                minY: Math.min(...childPositions.map(p => p.y)) - 45,
+                maxY: Math.max(...childPositions.map(p => p.y)) + 45,
+                children: new Set(fb.children),
+              };
+            }).filter(Boolean) as { minX: number; maxX: number; minY: number; maxY: number; children: Set<string> }[];
+
+            return routed.map((r) => {
+              const ws = resolveWireStyle(r.wire.id, r.wire.color, r.wire.gauge, styleConfig, wireRules);
+              const isHovered = hoveredWireId === r.wire.id;
+              const dimmed = hoveredWireId !== null && !isHovered;
+              return (
+                <WirePath
+                  key={r.wire.id}
+                  routed={r}
+                  color={ws.color}
+                  strokeWidth={ws.strokeWidth}
+                  dashArray={ws.dashArray}
+                  opacity={ws.opacity}
+                  secondaryColor={ws.secondaryColor}
+                  separatorYs={separators}
+                  dimmed={dimmed}
+                  onHover={(id) => setHoveredWireId(id)}
+                  wireRules={wireRules}
+                  fuseBoxBounds={fuseBoxBounds}
+                />
+              );
+            });
+          })()}
         </g>
 
         {/* 母线连接点（圆点） */}

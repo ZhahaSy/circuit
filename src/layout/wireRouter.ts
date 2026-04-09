@@ -10,7 +10,7 @@ export interface RoutedWire {
 }
 
 const PORT_OFFSETS: Record<ComponentType, { top: number; bottom: number }> = {
-  power:          { top: 0, bottom: 0 },  // power nodes sit on bus line, no offset
+  power:          { top: 0, bottom: 0 },
   ground:         { top: -20, bottom: 12 },
   fuse:           { top: -28, bottom: 28 },
   relay:          { top: -34, bottom: 34 },
@@ -35,13 +35,12 @@ function getPortY(nodeY: number, peerY: number, type: ComponentType): number {
   return nodeY + offsets.bottom;
 }
 
-const EPS = 5; // tolerance for "same coordinate"
+const EPS = 5;
 
 /** Deduplicate consecutive near-identical points, then remove collinear midpoints */
 function simplifyPath(points: { x: number; y: number }[]): { x: number; y: number }[] {
   if (points.length <= 2) return points;
 
-  // Step 1: deduplicate consecutive points that are essentially the same
   const deduped = [points[0]];
   for (let i = 1; i < points.length; i++) {
     const prev = deduped[deduped.length - 1];
@@ -51,7 +50,6 @@ function simplifyPath(points: { x: number; y: number }[]): { x: number; y: numbe
   }
   if (deduped.length <= 2) return deduped;
 
-  // Step 2: remove collinear midpoints (3 points on same horizontal or vertical line)
   const clean = [deduped[0]];
   for (let i = 1; i < deduped.length - 1; i++) {
     const prev = clean[clean.length - 1];
@@ -67,6 +65,9 @@ function simplifyPath(points: { x: number; y: number }[]): { x: number; y: numbe
   return clean;
 }
 
+/** Wire spacing for parallel wires sharing the same column or channel */
+const WIRE_SPACING = 8;
+
 export function routeWires(
   wires: Wire[],
   positions: Map<string, NodePosition>,
@@ -80,8 +81,16 @@ export function routeWires(
     }
   }
 
-  const needsChannel: { wire: Wire; fromPos: { x: number; y: number }; toPos: { x: number; y: number }; midY: number; busDot?: { x: number; y: number } }[] = [];
-  const straight: RoutedWire[] = [];
+  // ── Phase 1: Classify wires ──
+  // Track how many wires share the same vertical column (same X)
+  // so we can offset them to avoid overlap.
+
+  // Group power bus wires by target node X
+  const busWiresByX = new Map<number, { wire: Wire; busX: number; busY: number; otherPortY: number; otherNodeId: string }[]>();
+  // Group straight vertical wires by X
+  const straightByX = new Map<number, { wire: Wire; fromPos: { x: number; y: number }; toPos: { x: number; y: number } }[]>();
+  // Non-vertical wires that need channel routing
+  const needsChannel: { wire: Wire; fromPos: { x: number; y: number }; toPos: { x: number; y: number }; midY: number }[] = [];
 
   for (const wire of wires) {
     const fromCenter = positions.get(wire.from.nodeId);
@@ -93,8 +102,6 @@ export function routeWires(
     const fromIsPower = powerNodeIds.has(wire.from.nodeId);
     const toIsPower = powerNodeIds.has(wire.to.nodeId);
 
-    // For power bus connections: wire goes straight down from bus line
-    // to the connected node's top port
     if (fromIsPower || toIsPower) {
       const powerNodeId = fromIsPower ? wire.from.nodeId : wire.to.nodeId;
       const otherNodeId = fromIsPower ? wire.to.nodeId : wire.from.nodeId;
@@ -102,21 +109,15 @@ export function routeWires(
       const otherCenter = positions.get(otherNodeId)!;
       const otherNode = nodeMap?.get(otherNodeId);
 
-      // The wire drops from the bus line at the other node's X position
       const busX = otherCenter.x;
       const busY = powerPos.y;
       const otherPortY = otherNode
         ? getPortY(otherCenter.y, busY, otherNode.type)
         : otherCenter.y;
 
-      const path = `M ${busX} ${busY} L ${busX} ${otherPortY}`;
-      straight.push({
-        wire,
-        path,
-        labelX: busX + 8,
-        labelY: (busY + otherPortY) / 2 - 4,
-        busDot: { x: busX, y: busY },
-      });
+      const key = Math.round(busX);
+      if (!busWiresByX.has(key)) busWiresByX.set(key, []);
+      busWiresByX.get(key)!.push({ wire, busX, busY, otherPortY, otherNodeId });
       continue;
     }
 
@@ -130,21 +131,85 @@ export function routeWires(
     const fromPos = { x: fromCenter.x, y: fromPortY };
     const toPos = { x: toCenter.x, y: toPortY };
 
-    if (fromCenter.x === toCenter.x) {
-      straight.push({
-        wire,
-        path: `M ${fromPos.x} ${fromPos.y} L ${toPos.x} ${toPos.y}`,
-        labelX: fromPos.x + 8,
-        labelY: (fromPos.y + toPos.y) / 2 - 4,
-      });
+    if (Math.abs(fromCenter.x - toCenter.x) < EPS) {
+      // Vertical wire — group by X for offset
+      const key = Math.round(fromCenter.x);
+      if (!straightByX.has(key)) straightByX.set(key, []);
+      straightByX.get(key)!.push({ wire, fromPos, toPos });
     } else {
       const midY = (fromPos.y + toPos.y) / 2;
       needsChannel.push({ wire, fromPos, toPos, midY });
     }
   }
 
+  const routed: RoutedWire[] = [];
+
+  // ── Phase 2: Route power bus wires with X offset ──
+  for (const [, group] of busWiresByX) {
+    const n = group.length;
+    const totalOffset = (n - 1) * WIRE_SPACING;
+    group.forEach((item, i) => {
+      const xOffset = -totalOffset / 2 + i * WIRE_SPACING;
+      const x = item.busX + xOffset;
+      const path = `M ${x} ${item.busY} L ${x} ${item.otherPortY}`;
+      routed.push({
+        wire: item.wire,
+        path,
+        labelX: x + 8,
+        labelY: (item.busY + item.otherPortY) / 2 - 4,
+        busDot: { x, y: item.busY },
+      });
+    });
+  }
+
+  // ── Phase 3: Route straight vertical wires with X offset ──
+  // Only offset wires whose Y ranges actually overlap
+  for (const [, group] of straightByX) {
+    // Build overlap clusters: wires that share overlapping Y ranges
+    const items = group.map(item => ({
+      ...item,
+      minY: Math.min(item.fromPos.y, item.toPos.y),
+      maxY: Math.max(item.fromPos.y, item.toPos.y),
+    }));
+    items.sort((a, b) => a.minY - b.minY);
+
+    // Greedy clustering: group wires with overlapping Y ranges
+    const clusters: typeof items[] = [];
+    for (const item of items) {
+      let placed = false;
+      for (const cluster of clusters) {
+        const clusterMaxY = Math.max(...cluster.map(c => c.maxY));
+        if (item.minY < clusterMaxY - EPS) {
+          cluster.push(item);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) clusters.push([item]);
+    }
+
+    for (const cluster of clusters) {
+      const n = cluster.length;
+      const totalOffset = (n - 1) * WIRE_SPACING;
+      cluster.forEach((item, i) => {
+        const xOffset = -totalOffset / 2 + i * WIRE_SPACING;
+        const fromX = item.fromPos.x + xOffset;
+        const toX = item.toPos.x + xOffset;
+        const path = `M ${fromX} ${item.fromPos.y} L ${toX} ${item.toPos.y}`;
+        routed.push({
+          wire: item.wire,
+          path,
+          labelX: fromX + 8,
+          labelY: (item.fromPos.y + item.toPos.y) / 2 - 4,
+        });
+      });
+    }
+  }
+
+  // ── Phase 4: Route non-vertical wires with channel separation ──
   needsChannel.sort((a, b) => a.midY - b.midY || a.fromPos.x - b.fromPos.x);
 
+  // Group by similar midY (within 10px)
   const grouped = new Map<number, typeof needsChannel>();
   for (const item of needsChannel) {
     const key = Math.round(item.midY / 10) * 10;
@@ -152,43 +217,29 @@ export function routeWires(
     grouped.get(key)!.push(item);
   }
 
-  const routed: RoutedWire[] = [...straight];
-
-  for (const [baseMidY, group] of grouped) {
-    const totalWidth = (group.length - 1) * channelSpacing;
-    const startOffset = -totalWidth / 2;
-
+  for (const [, group] of grouped) {
     group.forEach((item, i) => {
       const { wire, fromPos, toPos } = item;
-
-      // Decide routing shape:
-      // L-shape (1 bend) when possible, Z-shape (2 bends) only when needed
       let points: { x: number; y: number }[];
 
       if (group.length === 1) {
-        // Single wire in this channel group — use L-shape
-        // Pick the L that bends at (fromX, toY) or (toX, fromY)
-        // Choose the one where the horizontal segment is closer to the midpoint
+        const midY = (fromPos.y + toPos.y) / 2;
         points = [
           fromPos,
-          { x: fromPos.x, y: toPos.y },
+          { x: fromPos.x, y: midY },
+          { x: toPos.x, y: midY },
           toPos,
         ];
       } else {
-        // Multiple wires sharing similar midY — use Z-shape with channel separation
-        let channelY = baseMidY + startOffset + i * channelSpacing;
+        const realMidY = (fromPos.y + toPos.y) / 2;
+        const totalWidth = (group.length - 1) * channelSpacing;
+        const startOff = -totalWidth / 2;
+        let channelY = realMidY + startOff + i * channelSpacing;
 
-        // Snap channelY to endpoint if close enough
         if (Math.abs(channelY - fromPos.y) < Math.abs(channelY - toPos.y)) {
-          // channelY is closer to from — snap to from.y for L-shape
-          if (Math.abs(channelY - fromPos.y) < 30) {
-            channelY = fromPos.y;
-          }
+          if (Math.abs(channelY - fromPos.y) < 30) channelY = fromPos.y;
         } else {
-          // channelY is closer to to — snap to to.y for L-shape
-          if (Math.abs(channelY - toPos.y) < 30) {
-            channelY = toPos.y;
-          }
+          if (Math.abs(channelY - toPos.y) < 30) channelY = toPos.y;
         }
 
         points = [

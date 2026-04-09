@@ -6,22 +6,33 @@ interface Props {
   style: Required<NodeStyleConfig>;
 }
 
+/**
+ * 继电器 — 参考无线充电系统电路图标准符号
+ * 矩形框 + 内部线圈符号 + 触点
+ */
 export function RelayNode({ label, sublabel, style }: Props) {
+  const s = style.stroke;
   return (
     <>
-      {/* 继电器：矩形框 + 内部线圈符号 */}
-      <rect x={-30} y={-20} width={60} height={40} rx={2} fill={style.fill} stroke={style.stroke} strokeWidth={style.strokeWidth} />
-      {/* 线圈符号 */}
-      <path d="M -10,-6 Q -6,-12 -2,-6 Q 2,0 6,-6 Q 10,-12 14,-6" fill="none" stroke={style.stroke} strokeWidth={1.2} />
+      {/* 继电器矩形框 */}
+      <rect x={-28} y={-18} width={56} height={36} rx={0} fill={style.fill} stroke={s} strokeWidth={style.strokeWidth} />
+      {/* 线圈符号（波浪线） */}
+      <path
+        d="M -12,-4 Q -8,-12 -4,-4 Q 0,4 4,-4 Q 8,-12 12,-4"
+        fill="none"
+        stroke={s}
+        strokeWidth={1.2}
+      />
       {/* 触点标记 */}
-      <line x1={-8} y1={6} x2={8} y2={6} stroke={style.stroke} strokeWidth={1} />
-      <line x1={0} y1={6} x2={0} y2={12} stroke={style.stroke} strokeWidth={1} />
+      <line x1={-8} y1={8} x2={8} y2={8} stroke={s} strokeWidth={1} />
+      <line x1={0} y1={8} x2={0} y2={14} stroke={s} strokeWidth={1} />
       {/* 上下引脚线 */}
-      <line x1={0} y1={-20} x2={0} y2={-34} stroke="#333" strokeWidth={1.5} />
-      <line x1={0} y1={20} x2={0} y2={34} stroke="#333" strokeWidth={1.5} />
-      <text x={0} y={-38} textAnchor="middle" fontSize={style.fontSize} fontWeight="bold" fill={style.textColor}>{label}</text>
+      <line x1={0} y1={-18} x2={0} y2={-32} stroke="#333" strokeWidth={1.5} />
+      <line x1={0} y1={18} x2={0} y2={32} stroke="#333" strokeWidth={1.5} />
+      {/* 标签 */}
+      <text x={0} y={-36} textAnchor="middle" fontSize={style.fontSize} fontWeight="bold" fill={style.textColor}>{label}</text>
       {sublabel && (
-        <text x={0} y={50} textAnchor="middle" fontSize={style.fontSize - 2} fill="#666">{sublabel}</text>
+        <text x={0} y={46} textAnchor="middle" fontSize={style.fontSize - 2} fill="#666">{sublabel}</text>
       )}
     </>
   );

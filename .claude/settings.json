@@ -4,7 +4,9 @@
       "Bash(npx tsc:*)",
       "Bash(echo \"EXIT: $?\")",
       "Bash(npm run:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m 'feat: 电源母线渲染 + 线路折角优化:*)",
+      "Bash(git push:*)"
     ]
   }
 }

@@ -8,45 +8,31 @@ interface Props {
 }
 
 /**
- * 对接插头 — 线束从上端进、下端出
- * 上半为母端（圆点），下半为公端（弧钩）
- * 箭头从母端指向公端（从上往下）
+ * 对接插头 — 参考无线充电系统电路图标准符号
+ * 圆形端子 + 中心引脚标记（从原始 SVG 提取并归一化到原点）
  */
 export function ConnectorPlugNode({ label, sublabel, style }: Props) {
-  const s = style.stroke;
   return (
-    <>
-      {/* 上方竖线（母端入线） */}
-      <line x1={0} y1={-24} x2={0} y2={-5} stroke={s} strokeWidth={1.5} />
+    <g>
+      {/* 白色背景 */}
+      <rect x={-5} y={-10} width={10} height={20} fill="#fff" stroke="none" />
 
-      {/* 母端：实心圆点 */}
-      <circle cx={0} cy={-5} r={3.5} fill={s} />
+      {/* 上方引脚线 */}
+      <line x1={0} y1={-10} x2={0} y2={-24} fill="none" stroke="#000" strokeWidth={0.6} strokeLinecap="round" strokeLinejoin="round" />
+      {/* 下方引脚线 */}
+      <line x1={0} y1={10} x2={0} y2={24} fill="none" stroke="#000" strokeWidth={0.6} strokeLinecap="round" />
 
-      {/* 公端：小弧钩（开口朝上，对准圆点） */}
-      <path
-        d="M -5 -1 Q -5 8, 0 8 Q 5 8, 5 -1"
-        fill="none"
-        stroke={s}
-        strokeWidth={1.5}
-      />
+      {/* 圆形端子（外圈 + 内圈） */}
+      <circle cx={0} cy={0} r={4} fill="#fff" stroke="#000" strokeWidth={0.8} />
+      <circle cx={0} cy={0} r={3.2} fill="none" stroke="#000" strokeWidth={0.6} />
 
-      {/* 箭头：母端→公端方向，在弧钩下方 */}
-      <path
-        d="M -4 14 L 0 20 L 4 14"
-        fill="none"
-        stroke={s}
-        strokeWidth={1.5}
-        strokeLinejoin="round"
-      />
-
-      {/* 下方竖线（公端出线） */}
-      <line x1={0} y1={8} x2={0} y2={14} stroke={s} strokeWidth={1.5} />
-      <line x1={0} y1={20} x2={0} y2={24} stroke={s} strokeWidth={1.5} />
+      {/* 中心引脚标记（小矩形） */}
+      <rect x={-0.6} y={-2.5} width={1.2} height={5} fill="#000" stroke="#000" strokeWidth={0.5} strokeLinecap="round" strokeLinejoin="round" />
 
       {/* 标签 */}
       <text
-        x={14}
-        y={2}
+        x={10}
+        y={-2}
         textAnchor="start"
         fontSize={style.fontSize}
         fontWeight="bold"
@@ -55,10 +41,10 @@ export function ConnectorPlugNode({ label, sublabel, style }: Props) {
         {label}
       </text>
       {sublabel && (
-        <text x={14} y={14} textAnchor="start" fontSize={8} fill="#999">
+        <text x={10} y={10} textAnchor="start" fontSize={8} fill="#999">
           {sublabel}
         </text>
       )}
-    </>
+    </g>
   );
 }

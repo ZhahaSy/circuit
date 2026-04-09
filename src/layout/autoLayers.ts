@@ -1,27 +1,15 @@
 import type { CircuitData, ComponentType, LayerConfig } from '../types';
 
 /**
- * 固定层级优先级：type → 层序号（0=最顶，越大越靠下）
- * 电源最顶，接地最底，ECU 居中，其余根据拓扑距离分配
- */
-const FIXED_LAYER: Partial<Record<ComponentType, number>> = {
-  power: 0,
-  ground: 6,
-};
-
-const UPPER_TYPES: Set<ComponentType> = new Set(['fuse', 'relay']);
-const CONTROLLER_TYPES: Set<ComponentType> = new Set(['ecu', 'ic']);
-
-/**
- * 根据电路数据自动推断层级，不依赖手动模板
+ * 基于拓扑距离的自动分层
  *
  * 策略：
  * 1. 电源固定最顶层，接地固定最底层
- * 2. ECU/IC 固定中间层
- * 3. 保险丝/继电器 在 ECU 上方（电器盒区域）
- * 4. 其余节点根据与 ECU 的拓扑距离分配：
- *    - 从电源侧到达的 → ECU 上方
- *    - 从接地侧到达的或无连接的 → ECU 下方
+ * 2. 其余节点按 BFS 拓扑距离（从电源出发）分配层级
+ * 3. 同一拓扑距离的节点在同一层
+ *
+ * 返回的 LayerConfig 包含 nodeIds，精确指定每层的节点，
+ * 不再依赖 types 做匹配（同类型元件可以出现在不同层）。
  */
 export function autoLayers(data: CircuitData): LayerConfig[] {
   const { nodes, wires } = data;
@@ -56,61 +44,66 @@ export function autoLayers(data: CircuitData): LayerConfig[] {
 
   const powerIds = nodes.filter(n => n.type === 'power').map(n => n.id);
   const groundIds = nodes.filter(n => n.type === 'ground').map(n => n.id);
-
   const distFromPower = bfsDistance(powerIds);
-  const distFromGround = bfsDistance(groundIds);
 
-  // Assign each node to a logical layer index (0-6)
-  // 0: power, 1: fuse/relay, 2: upper peripherals, 3: ECU, 4: lower peripherals, 5: connectors, 6: ground
-  const nodeLayer = new Map<string, number>();
+  // Assign each node a topological depth
+  const nodeDepth = new Map<string, number>();
 
   for (const node of nodes) {
-    if (FIXED_LAYER[node.type] !== undefined) {
-      nodeLayer.set(node.id, FIXED_LAYER[node.type]!);
-    } else if (CONTROLLER_TYPES.has(node.type)) {
-      nodeLayer.set(node.id, 3);
-    } else if (UPPER_TYPES.has(node.type)) {
-      nodeLayer.set(node.id, 1);
+    if (node.type === 'power') {
+      nodeDepth.set(node.id, 0);
+    } else if (node.type === 'ground') {
+      nodeDepth.set(node.id, Infinity);
     } else {
-      // Determine side based on topology
       const dp = distFromPower.get(node.id) ?? Infinity;
-      const dg = distFromGround.get(node.id) ?? Infinity;
-
-      if (node.type === 'connector' || node.type === 'connector_plug') {
-        nodeLayer.set(node.id, 5);
-      } else if (node.type === 'switch' || node.type === 'splice') {
-        // Switches/splices: place based on which side they're closer to
-        nodeLayer.set(node.id, dp <= dg ? 2 : 4);
-      } else {
-        // Sensors, actuators, passives etc → below ECU
-        nodeLayer.set(node.id, dp < dg ? 2 : 4);
-      }
+      nodeDepth.set(node.id, dp === Infinity ? 999 : dp);
     }
   }
 
-  // Build layer configs from actual assignments
-  const layerDefs: { index: number; label: string }[] = [
-    { index: 0, label: '电源' },
-    { index: 1, label: '保护/控制' },
-    { index: 2, label: '上层外围' },
-    { index: 3, label: '控制器' },
-    { index: 4, label: '下层外围' },
-    { index: 5, label: '连接器' },
-    { index: 6, label: '接地' },
-  ];
+  // Normalize ground depth = max non-ground depth + 1
+  let maxDepth = 0;
+  for (const [, d] of nodeDepth) {
+    if (d !== Infinity && d !== 999 && d > maxDepth) maxDepth = d;
+  }
+  const groundDepth = maxDepth + 1;
+  for (const node of nodes) {
+    if (node.type === 'ground') nodeDepth.set(node.id, groundDepth);
+    if (nodeDepth.get(node.id) === 999) nodeDepth.set(node.id, groundDepth - 1);
+  }
 
-  // Only include layers that have nodes
-  const usedIndices = new Set(nodeLayer.values());
+  // Group nodes by depth
+  const depthGroups = new Map<number, { ids: string[]; types: Set<ComponentType> }>();
+  for (const node of nodes) {
+    const d = nodeDepth.get(node.id) ?? 0;
+    if (!depthGroups.has(d)) {
+      depthGroups.set(d, { ids: [], types: new Set() });
+    }
+    const g = depthGroups.get(d)!;
+    g.ids.push(node.id);
+    g.types.add(node.type);
+  }
+
+  // Sort depths and build layer configs
+  const sortedDepths = [...depthGroups.keys()].sort((a, b) => a - b);
+
+  const LABEL_MAP: Partial<Record<ComponentType, string>> = {
+    power: '电源', ground: '接地', fuse: '保险丝', relay: '继电器',
+    switch: '开关', splice: '接点', connector: '连接器',
+    connector_plug: '对接插头', ecu: 'ECU', ic: '集成电路',
+    sensor: '传感器', actuator: '执行器', resistor: '电阻/模块',
+    capacitor: '电容', diode: '二极管', transistor: '三极管',
+  };
+
   const layers: LayerConfig[] = [];
-
-  for (const def of layerDefs) {
-    if (!usedIndices.has(def.index)) continue;
-    const layerNodes = nodes.filter(n => nodeLayer.get(n.id) === def.index);
-    const types = [...new Set(layerNodes.map(n => n.type))];
+  for (const depth of sortedDepths) {
+    const group = depthGroups.get(depth)!;
+    const types = [...group.types];
+    const labels = types.map(t => LABEL_MAP[t] || t);
     layers.push({
-      id: `auto_${def.index}`,
-      label: def.label,
+      id: `topo_${depth}`,
+      label: labels.join('/'),
       types,
+      nodeIds: group.ids,
     });
   }
 

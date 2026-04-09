@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { sampleCircuit } from './sampleData';
+import { wirelessChargingCircuit } from './wirelessChargingData';
 import type { CircuitData, StyleConfig, ComponentType, LayerConfig, NodeStyleConfig, WireStyleConfig } from './types';
 import { defaultStyleConfig } from './styles/defaultStyles';
 import { usePositions } from './hooks/usePositions';
@@ -26,7 +27,7 @@ interface CustomSvgEntry { id: string; name: string; dataUrl: string; }
 
 function App() {
   const [appTab, setAppTab] = useState<AppTab>('preview');
-  const [circuitData, setCircuitData] = useState<CircuitData>(sampleCircuit);
+  const [circuitData, setCircuitData] = useState<CircuitData>(wirelessChargingCircuit);
   const [styleConfig, setStyleConfig] = useState<StyleConfig>(defaultStyleConfig);
   const templateStore = useTemplateStore();
   const { activeTemplate } = templateStore;

@@ -15,7 +15,7 @@ const PORT_OFFSETS: Record<ComponentType, { top: number; bottom: number }> = {
   fuse:           { top: -28, bottom: 28 },
   relay:          { top: -34, bottom: 34 },
   switch:         { top: -28, bottom: 28 },
-  splice:         { top: -24, bottom: 24 },
+  splice:         { top: -4, bottom: 4 },
   connector:      { top: -34, bottom: 34 },
   connector_plug: { top: -24, bottom: 24 },
   ecu:            { top: -38, bottom: 38 },
@@ -26,6 +26,7 @@ const PORT_OFFSETS: Record<ComponentType, { top: number; bottom: number }> = {
   diode:          { top: -20, bottom: 20 },
   transistor:     { top: -20, bottom: 20 },
   ic:             { top: -30, bottom: 30 },
+  can:            { top: -30, bottom: 30 },
 };
 
 function getPortY(nodeY: number, peerY: number, type: ComponentType): number {
@@ -204,6 +205,33 @@ export function routeWires(
     }
   }
 
+  // ── Phase 1.5: Move vertical wires that converge with non-vertical wires ──
+  // If a vertical wire shares an endpoint with a non-vertical wire, move it to
+  // needsChannel so convergence detection in Phase 4 can handle them together.
+  const channelEndpoints = new Set<string>();
+  for (const item of needsChannel) {
+    channelEndpoints.add(`${Math.round(item.fromPos.x)},${Math.round(item.fromPos.y)}`);
+    channelEndpoints.add(`${Math.round(item.toPos.x)},${Math.round(item.toPos.y)}`);
+  }
+  for (const [key, group] of straightByX) {
+    const remaining: typeof group = [];
+    for (const item of group) {
+      const fromKey = `${Math.round(item.fromPos.x)},${Math.round(item.fromPos.y)}`;
+      const toKey = `${Math.round(item.toPos.x)},${Math.round(item.toPos.y)}`;
+      if (channelEndpoints.has(fromKey) || channelEndpoints.has(toKey)) {
+        const midY = (item.fromPos.y + item.toPos.y) / 2;
+        needsChannel.push({ wire: item.wire, fromPos: item.fromPos, toPos: item.toPos, midY });
+      } else {
+        remaining.push(item);
+      }
+    }
+    if (remaining.length === 0) {
+      straightByX.delete(key);
+    } else {
+      straightByX.set(key, remaining);
+    }
+  }
+
   const routed: RoutedWire[] = [];
 
   // ── Phase 2: Route power bus wires with X offset ──
@@ -225,7 +253,7 @@ export function routeWires(
   }
 
   // ── Phase 3: Route straight vertical wires with X offset ──
-  // Only offset wires whose Y ranges actually overlap
+  // Only offset wires whose Y ranges actually overlap AND are not serial (sharing an endpoint)
   for (const [, group] of straightByX) {
     // Build overlap clusters: wires that share overlapping Y ranges
     const items = group.map(item => ({
@@ -235,13 +263,21 @@ export function routeWires(
     }));
     items.sort((a, b) => a.minY - b.minY);
 
-    // Greedy clustering: group wires with overlapping Y ranges
+    // Check if two wires are serial (share an endpoint node)
+    function areSerial(a: typeof items[0], b: typeof items[0]): boolean {
+      const aNodes = [a.wire.from.nodeId, a.wire.to.nodeId];
+      const bNodes = [b.wire.from.nodeId, b.wire.to.nodeId];
+      return aNodes.some(n => bNodes.includes(n));
+    }
+
+    // Greedy clustering: group wires with overlapping Y ranges, but NOT serial wires
     const clusters: typeof items[] = [];
     for (const item of items) {
       let placed = false;
       for (const cluster of clusters) {
         const clusterMaxY = Math.max(...cluster.map(c => c.maxY));
-        if (item.minY < clusterMaxY - EPS) {
+        // Only cluster if overlapping AND not serial with any wire in the cluster
+        if (item.minY < clusterMaxY - EPS && !cluster.some(c => areSerial(c, item))) {
           cluster.push(item);
           placed = true;
           break;

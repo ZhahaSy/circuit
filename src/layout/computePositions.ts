@@ -100,7 +100,7 @@ const NODE_HALF_WIDTHS: Partial<Record<ComponentType, number>> = {
   power: 12, ground: 14, fuse: 16, relay: 30, switch: 16,
   splice: 12, connector: 22, connector_plug: 16, ecu: 52,
   sensor: 24, actuator: 24, resistor: 20, capacitor: 16,
-  diode: 16, transistor: 16, ic: 32,
+  diode: 16, transistor: 16, ic: 32, can: 12,
 };
 
 /** Minimum gap between node bounding boxes */

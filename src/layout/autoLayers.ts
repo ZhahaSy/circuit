@@ -83,6 +83,21 @@ export function autoLayers(data: CircuitData): LayerConfig[] {
     g.types.add(node.type);
   }
 
+  // Extract splice nodes from each depth group — they belong in harness layers
+  const spliceByDepth = new Map<number, string[]>();
+  for (const [depth, group] of depthGroups) {
+    const spliceIds = group.ids.filter(id => {
+      const node = nodes.find(n => n.id === id);
+      return node?.type === 'splice';
+    });
+    if (spliceIds.length > 0) {
+      spliceByDepth.set(depth, spliceIds);
+      group.ids = group.ids.filter(id => !spliceIds.includes(id));
+      group.types.delete('splice');
+      // If group is now empty, keep it but it will be skipped
+    }
+  }
+
   // Sort depths and build layer configs
   const sortedDepths = [...depthGroups.keys()].sort((a, b) => a - b);
 
@@ -91,34 +106,68 @@ export function autoLayers(data: CircuitData): LayerConfig[] {
     switch: '开关', splice: '接点', connector: '连接器',
     connector_plug: '对接插头', ecu: 'ECU', ic: '集成电路',
     sensor: '传感器', actuator: '执行器', resistor: '电阻/模块',
-    capacitor: '电容', diode: '二极管', transistor: '三极管',
+    capacitor: '电容', diode: '二极管', transistor: '三极管', can: 'CAN总线',
   };
 
   const layers: LayerConfig[] = [];
   for (let i = 0; i < sortedDepths.length; i++) {
     const depth = sortedDepths[i];
     const group = depthGroups.get(depth)!;
-    const types = [...group.types];
-    const labels = types.map(t => LABEL_MAP[t] || t);
-    layers.push({
-      id: `topo_${depth}`,
-      label: labels.join('/'),
-      types,
-      nodeIds: group.ids,
-    });
+    // Skip empty groups (all nodes were splices extracted out)
+    if (group.ids.length === 0 && !spliceByDepth.has(depth)) continue;
 
-    // 在保险丝/继电器层、ECU/模块层后插入线束层
+    if (group.ids.length > 0) {
+      const types = [...group.types];
+      const labels = types.map(t => LABEL_MAP[t] || t);
+      layers.push({
+        id: `topo_${depth}`,
+        label: labels.join('/'),
+        types,
+        nodeIds: group.ids,
+      });
+    }
+
+    // 在保险丝/继电器层、ECU/模块层后插入线束层，splice 节点放入线束层
     if (i < sortedDepths.length - 1) {
+      const types = [...group.types];
       const needsHarness = types.includes('fuse') || types.includes('relay')
         || types.includes('ecu') || types.includes('ic');
-      if (needsHarness) {
+      // Also create harness if there are splice nodes at this depth
+      const splicesAtDepth = spliceByDepth.get(depth) ?? [];
+      // Look ahead: splice nodes at the next depth should go into this harness too
+      const nextDepth = sortedDepths[i + 1];
+      const splicesAtNext = nextDepth != null ? (spliceByDepth.get(nextDepth) ?? []) : [];
+      const harnessNodeIds = [...splicesAtDepth, ...splicesAtNext];
+
+      if (needsHarness || harnessNodeIds.length > 0) {
+        const harnessTypes: ComponentType[] = harnessNodeIds.length > 0 ? ['splice'] : [];
         layers.push({
           id: `harness_${depth}`,
-          label: '线束',
-          types: [],
-          nodeIds: [],
+          label: harnessNodeIds.length > 0 ? '线束/接点' : '线束',
+          types: harnessTypes,
+          nodeIds: harnessNodeIds,
         });
+        // Mark these splices as placed
+        if (splicesAtDepth.length > 0) spliceByDepth.delete(depth);
+        if (splicesAtNext.length > 0) spliceByDepth.delete(nextDepth);
       }
+    }
+  }
+
+  // Place any remaining unplaced splice nodes into the last harness or a new layer
+  for (const [depth, spliceIds] of spliceByDepth) {
+    // Find the harness layer just before this depth, or append
+    const lastHarness = layers.findLast(l => l.id.startsWith('harness_'));
+    if (lastHarness) {
+      lastHarness.nodeIds = [...(lastHarness.nodeIds ?? []), ...spliceIds];
+      if (!lastHarness.types.includes('splice')) lastHarness.types.push('splice');
+    } else {
+      layers.push({
+        id: `splice_${depth}`,
+        label: '接点',
+        types: ['splice'],
+        nodeIds: spliceIds,
+      });
     }
   }
 

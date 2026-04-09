@@ -16,7 +16,8 @@ export type ComponentType =
   | 'capacitor'       // 电容
   | 'diode'           // 二极管
   | 'transistor'      // 三极管
-  | 'ic';             // 集成电路
+  | 'ic'              // 集成电路
+  | 'can';            // CAN总线
 
 export interface CircuitNode {
   id: string;

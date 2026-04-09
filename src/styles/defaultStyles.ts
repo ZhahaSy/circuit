@@ -43,6 +43,7 @@ const NODE_TYPE_STYLES: Record<string, NodeStyleConfig> = {
   connector: { fill: '#fff', stroke: '#040000', strokeWidth: 1, textColor: '#333', fontSize: 9 },
   connector_plug: { fill: '#fff', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 9 },
   ecu: { fill: '#ccc', stroke: '#000', strokeWidth: 0.5, textColor: '#333', fontSize: 10 },
+  can: { fill: 'none', stroke: '#040000', strokeWidth: 1.2, textColor: '#333', fontSize: 9 },
 };
 
 export const defaultStyleConfig: StyleConfig = {

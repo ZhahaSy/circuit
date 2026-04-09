@@ -8,6 +8,7 @@ import { EcuNode } from './nodes/EcuNode';
 import { SwitchNode } from './nodes/SwitchNode';
 import { RelayNode } from './nodes/RelayNode';
 import { ConnectorPlugNode } from './nodes/ConnectorPlugNode';
+import { CanBusNode } from './nodes/CanBusNode';
 import { CustomSvgNode } from './nodes/CustomSvgNode';
 
 export interface PinInfo {
@@ -28,9 +29,9 @@ interface Props {
 // Node bounding box heights for pin placement
 const NODE_HALF_HEIGHTS: Record<string, number> = {
   power: 20, ground: 20, fuse: 28, relay: 34, switch: 28,
-  splice: 24, connector: 34, connector_plug: 24, ecu: 38,
+  splice: 4, connector: 34, connector_plug: 24, ecu: 38,
   sensor: 24, actuator: 24, resistor: 20, capacitor: 20,
-  diode: 20, transistor: 20, ic: 30,
+  diode: 20, transistor: 20, ic: 30, can: 30,
 };
 
 function formatPinLabel(pinId: string, nodeId: string, index: number, format?: string): string {
@@ -69,6 +70,8 @@ export function DragContainer({ node, pos, style, pinRules, pinInfo, onPointerDo
         return <SwitchNode label={node.label} sublabel={node.sublabel} style={style} />;
       case 'relay':
         return <RelayNode label={node.label} sublabel={node.sublabel} style={style} />;
+      case 'can':
+        return <CanBusNode label={node.label} style={style} />;
       default:
         return (
           <>

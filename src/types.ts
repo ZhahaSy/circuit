@@ -9,7 +9,14 @@ export type ComponentType =
   | 'splice'          // 接头
   | 'ecu'             // ECU/模块接口
   | 'switch'          // 开关
-  | 'relay';          // 继电器
+  | 'relay'           // 继电器
+  | 'sensor'          // 传感器
+  | 'actuator'        // 执行器
+  | 'resistor'        // 电阻
+  | 'capacitor'       // 电容
+  | 'diode'           // 二极管
+  | 'transistor'      // 三极管
+  | 'ic';             // 集成电路
 
 export interface CircuitNode {
   id: string;
@@ -35,12 +42,19 @@ export interface LayerConfig {
   types: ComponentType[];
 }
 
+export interface FuseBoxConfig {
+  id: string;
+  label: string;
+  children: string[];   // 包含的元器件ID列表（保险丝/继电器）
+}
+
 export interface CircuitData {
   title: string;
   systemName: string;
   nodes: CircuitNode[];
   wires: Wire[];
   layers?: LayerConfig[];
+  fuseBoxes?: FuseBoxConfig[];
 }
 
 // --- 样式系统 ---
@@ -78,4 +92,82 @@ export interface StyleConfig {
 export interface NodePosition {
   x: number;
   y: number;
+}
+
+// --- 规则配置模板 ---
+
+export interface PowerPort {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface ConnectionConstraint {
+  fromType: ComponentType;
+  toType: ComponentType;
+  required: boolean;
+  description?: string;
+}
+
+export interface ConnectionRuleConfig {
+  fuseBoxContainedTypes: ComponentType[];
+  groundPlacement: 'below_controller' | 'above_controller' | 'free';
+  powerOutputPorts: PowerPort[];
+  fuseBoxIndependentWiring: boolean;
+  connectionConstraints: ConnectionConstraint[];
+}
+
+export interface WireRuleConfig {
+  colorCodeMap: Record<string, string>;
+  multiColorSeparator: string;
+  primaryWidth: number;
+  secondaryWidth: number;
+  labelFormat: string;
+  labelVisible: boolean;
+}
+
+export interface LayerTemplate {
+  id: string;
+  label: string;
+  types: ComponentType[];
+}
+
+export interface LayoutRuleConfig {
+  defaultDirection: 'vertical' | 'horizontal' | 'auto';
+  verticalCondition: {
+    requirePower: boolean;
+    requireController: boolean;
+    requireBalancedPins: boolean;
+  };
+  /** 'template' 使用手动层级模板, 'auto' 根据拓扑自动分层 */
+  layerMode: 'template' | 'auto';
+  layerTemplate: LayerTemplate[];
+  layerSpacing: number;
+  nodeSpacing: number;
+  /** 同行元器件之间的最小间隙 (px) */
+  inlineGap: number;
+  sortStrategy: 'barycenter' | 'manual' | 'adjacency';
+  barycenterIterations: number;
+}
+
+export interface PinRuleConfig {
+  labelPosition: 'outside' | 'inside';
+  labelFormat: string;
+  showPinsInsideController: boolean;
+  autoDetectDirection: boolean;
+}
+
+export interface RuleTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  manufacturer?: string;
+  vehicleSeries?: string;
+  isBuiltin: boolean;
+  createdAt: string;
+  updatedAt: string;
+  connectionRules: ConnectionRuleConfig;
+  wireRules: WireRuleConfig;
+  layoutRules: LayoutRuleConfig;
+  pinRules: PinRuleConfig;
 }

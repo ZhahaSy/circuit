@@ -1,10 +1,12 @@
 import { forwardRef, useState, useCallback, useRef } from 'react';
-import type { CircuitData, LayerConfig, NodePosition, StyleConfig } from '../types';
+import type { CircuitData, LayerConfig, NodePosition, StyleConfig, WireRuleConfig, FuseBoxConfig, PinRuleConfig } from '../types';
+import type { PowerBusInfo } from '../layout/computePositions';
 import { LAYOUT, computeLayerYPositions } from '../layout/computePositions';
 import { routeWires } from '../layout/wireRouter';
 import { resolveNodeStyle, resolveWireStyle } from '../styles/defaultStyles';
 import { WirePath } from './WirePath';
 import { DragContainer } from './DragContainer';
+import { PowerBusBar } from './PowerBusBar';
 
 interface LayerDragState {
   layerId: string;
@@ -17,6 +19,10 @@ interface Props {
   positions: Map<string, NodePosition>;
   styleConfig: StyleConfig;
   layers: LayerConfig[];
+  wireRules?: WireRuleConfig;
+  pinRules?: PinRuleConfig;
+  powerBuses?: PowerBusInfo[];
+  busBarTopY?: number;
   onPointerDown: (e: React.PointerEvent, nodeId: string, pos: NodePosition) => void;
   onPointerMove: (e: React.PointerEvent) => void;
   onPointerUp: () => void;
@@ -24,19 +30,20 @@ interface Props {
 }
 
 export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
-  ({ data, positions, styleConfig, layers, onPointerDown, onPointerMove, onPointerUp, onLayerReorder }, ref) => {
+  ({ data, positions, styleConfig, layers, wireRules, pinRules, powerBuses, busBarTopY, onPointerDown, onPointerMove, onPointerUp, onLayerReorder }, ref) => {
     const nodeMap = new Map(data.nodes.map(n => [n.id, n]));
     const routed = routeWires(data.wires, positions, nodeMap);
     const layerYMap = computeLayerYPositions(layers);
     const internalSvgRef = useRef<SVGSVGElement | null>(null);
 
-    // Layer drag state
     const [layerDrag, setLayerDrag] = useState<LayerDragState | null>(null);
-
-    // Wire hover state
     const [hoveredWireId, setHoveredWireId] = useState<string | null>(null);
 
-    // Compute separator Y positions (midpoint between consecutive layers)
+    // Power node IDs (rendered as bus bar, not as individual nodes)
+    const powerNodeIds = new Set(
+      data.nodes.filter(n => n.type === 'power').map(n => n.id),
+    );
+
     const separators: number[] = [];
     const layerEntries = layers.map(l => layerYMap.get(l.id)!);
     for (let i = 1; i < layerEntries.length; i++) {
@@ -51,12 +58,8 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
       return (clientY - ctm.f) / ctm.d;
     }, []);
 
-    // Compute target insert index based on current drag Y
-    const getInsertIndex = useCallback((dragLayerId: string, svgY: number): number => {
+    const getInsertIndex = useCallback((_dragLayerId: string, svgY: number): number => {
       const yPositions = layers.map(l => layerYMap.get(l.id)!);
-      const fromIdx = layers.findIndex(l => l.id === dragLayerId);
-
-      // Find the target index by checking which gap the cursor is in
       for (let i = 0; i < yPositions.length - 1; i++) {
         const mid = (yPositions[i] + yPositions[i + 1]) / 2;
         if (svgY < mid) return i;
@@ -82,126 +85,113 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
       setLayerDrag(prev => prev ? { ...prev, currentY: svgY } : null);
     }, [layerDrag, toSvgY]);
 
-    const handleLayerPointerUp = useCallback((e: React.PointerEvent) => {
+    const handleLayerPointerUp = useCallback(() => {
       if (!layerDrag || !onLayerReorder) {
         setLayerDrag(null);
         return;
       }
-      e.stopPropagation();
-      const targetIdx = getInsertIndex(layerDrag.layerId, layerDrag.currentY);
       const fromIdx = layers.findIndex(l => l.id === layerDrag.layerId);
-
-      if (fromIdx !== -1 && fromIdx !== targetIdx) {
-        const newLayers = [...layers];
-        const [removed] = newLayers.splice(fromIdx, 1);
-        newLayers.splice(targetIdx, 0, removed);
-        onLayerReorder(newLayers);
+      const toIdx = getInsertIndex(layerDrag.layerId, layerDrag.currentY);
+      if (fromIdx !== -1 && fromIdx !== toIdx) {
+        const next = [...layers];
+        const [moved] = next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, moved);
+        onLayerReorder(next);
       }
       setLayerDrag(null);
-    }, [layerDrag, onLayerReorder, layers, getInsertIndex]);
+    }, [layerDrag, layers, onLayerReorder, getInsertIndex]);
 
-    // Compute drag visual offset and insert indicator
-    let dragOffsetY = 0;
-    let insertIndicatorY: number | null = null;
-    if (layerDrag) {
-      dragOffsetY = layerDrag.currentY - layerDrag.startY;
-      const targetIdx = getInsertIndex(layerDrag.layerId, layerDrag.currentY);
-      const yPositions = layers.map(l => layerYMap.get(l.id)!);
-      // Show indicator line at the target position
-      if (targetIdx === 0) {
-        insertIndicatorY = yPositions[0] - 20;
-      } else if (targetIdx >= yPositions.length - 1) {
-        insertIndicatorY = yPositions[yPositions.length - 1] + 20;
-      } else {
-        insertIndicatorY = (yPositions[targetIdx] + yPositions[targetIdx - 1]) / 2;
-      }
-      // Don't show indicator if not actually moving
-      const fromIdx = layers.findIndex(l => l.id === layerDrag.layerId);
-      if (fromIdx === targetIdx) insertIndicatorY = null;
-    }
+    // Collect bus dots from routed wires
+    const busDots = routed
+      .filter(r => r.busDot)
+      .map(r => r.busDot!);
 
     return (
       <svg
-        ref={(node) => {
-          internalSvgRef.current = node;
-          if (typeof ref === 'function') ref(node);
-          else if (ref) (ref as React.MutableRefObject<SVGSVGElement | null>).current = node;
+        ref={(el) => {
+          internalSvgRef.current = el;
+          if (typeof ref === 'function') ref(el);
+          else if (ref) ref.current = el;
         }}
-        xmlns="http://www.w3.org/2000/svg"
         viewBox={`0 0 ${LAYOUT.width} ${LAYOUT.height}`}
-        width={LAYOUT.width}
-        height={LAYOUT.height}
-        style={{
-          background: 'white',
-          fontFamily: "'Microsoft YaHei', 'PingFang SC', sans-serif",
-          cursor: layerDrag ? 'grabbing' : undefined,
+        width="100%"
+        height="100%"
+        style={{ background: '#fff', borderRadius: 8 }}
+        onPointerMove={(e) => {
+          handleLayerPointerMove(e);
+          onPointerMove(e);
         }}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
+        onPointerUp={() => {
+          handleLayerPointerUp();
+          onPointerUp();
+        }}
       >
         {/* 标题 */}
-        <text x={LAYOUT.width / 2} y={28} textAnchor="middle" fontSize={16} fontWeight="bold" fill="#1a202c">
+        <text x={LAYOUT.width / 2} y={24} textAnchor="middle" fontSize={14} fontWeight="bold" fill="#2d3748">
           {data.title}
         </text>
+        <text x={LAYOUT.width / 2} y={40} textAnchor="middle" fontSize={10} fill="#718096">
+          {data.systemName}
+        </text>
 
-        {/* 层级标签 */}
+        {/* 电源母线区域 */}
+        {powerBuses && powerBuses.length > 0 && (
+          <PowerBusBar
+            buses={powerBuses.map(b => ({ id: b.id, label: b.label }))}
+            y={busBarTopY ?? LAYOUT.topMargin}
+          />
+        )}
+
+        {/* 层级分隔线 & 标签 (non-power layers only) */}
+        {separators.map((sy, i) => (
+          <line key={`sep-${i}`} x1={0} y1={sy} x2={LAYOUT.width} y2={sy} stroke="#e2e8f0" strokeWidth={0.5} strokeDasharray="4 4" />
+        ))}
         {layers.map((layer) => {
-          const y = layerYMap.get(layer.id);
-          if (y == null) return null;
-          const isDragging = layerDrag?.layerId === layer.id;
-          const labelY = isDragging ? y + dragOffsetY : y;
+          const ly = layerYMap.get(layer.id);
+          if (ly == null) return null;
+          const dragOffset = layerDrag?.layerId === layer.id ? layerDrag.currentY - layerDrag.startY : 0;
           return (
-            <g
+            <text
               key={layer.id}
-              style={{ cursor: onLayerReorder ? (isDragging ? 'grabbing' : 'grab') : undefined }}
-              opacity={isDragging ? 0.6 : 1}
+              x={12}
+              y={ly + dragOffset + 4}
+              fontSize={9}
+              fill={layerDrag?.layerId === layer.id ? '#3182ce' : '#a0aec0'}
+              fontWeight={layerDrag?.layerId === layer.id ? 'bold' : 'normal'}
+              style={{ cursor: onLayerReorder ? 'grab' : 'default', userSelect: 'none' }}
               onPointerDown={(e) => handleLayerPointerDown(e, layer.id)}
-              onPointerMove={handleLayerPointerMove}
-              onPointerUp={handleLayerPointerUp}
             >
+              {layer.label}
+            </text>
+          );
+        })}
+
+        {/* 保险丝盒 */}
+        {(data.fuseBoxes ?? []).map((fb: FuseBoxConfig) => {
+          const childPositions = fb.children.map(id => positions.get(id)).filter(Boolean) as NodePosition[];
+          if (childPositions.length === 0) return null;
+          const minX = Math.min(...childPositions.map(p => p.x)) - 50;
+          const maxX = Math.max(...childPositions.map(p => p.x)) + 50;
+          const minY = Math.min(...childPositions.map(p => p.y)) - 45;
+          const maxY = Math.max(...childPositions.map(p => p.y)) + 45;
+          return (
+            <g key={fb.id}>
               <rect
-                x={0}
-                y={labelY - 30}
-                width={30}
-                height={60}
-                fill="transparent"
+                x={minX} y={minY}
+                width={maxX - minX} height={maxY - minY}
+                rx={8} fill="#f7fafc" stroke="#a0aec0" strokeWidth={2} strokeDasharray="6 3" opacity={0.8}
               />
-              <text
-                x={16}
-                y={labelY + 4}
-                fontSize={9}
-                fill={isDragging ? '#3182ce' : '#999'}
-                transform={`rotate(-90, 16, ${labelY})`}
-                pointerEvents="none"
-              >
-                {layer.label}
-              </text>
+              <text x={minX + 8} y={minY + 14} fontSize={9} fill="#718096" fontWeight="bold">{fb.label}</text>
             </g>
           );
         })}
 
-        {/* 拖拽插入指示线 */}
-        {insertIndicatorY != null && (
-          <line
-            x1={0}
-            y1={insertIndicatorY}
-            x2={40}
-            y2={insertIndicatorY}
-            stroke="#3182ce"
-            strokeWidth={2}
-            pointerEvents="none"
-          />
-        )}
-
-        {/* 层级分隔线 */}
-        {separators.map((y) => (
-          <line key={y} x1={40} y1={y} x2={LAYOUT.width - 20} y2={y} stroke="#eee" strokeWidth={1} strokeDasharray="4" />
-        ))}
-
-        {/* 导线 */}
+        {/* 连线 */}
         <g id="wires">
           {routed.map((r) => {
-            const ws = resolveWireStyle(r.wire.id, r.wire.color, r.wire.gauge, styleConfig);
+            const ws = resolveWireStyle(r.wire.id, r.wire.color, r.wire.gauge, styleConfig, wireRules);
+            const isHovered = hoveredWireId === r.wire.id;
+            const dimmed = hoveredWireId !== null && !isHovered;
             return (
               <WirePath
                 key={r.wire.id}
@@ -212,16 +202,31 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
                 opacity={ws.opacity}
                 secondaryColor={ws.secondaryColor}
                 separatorYs={separators}
-                dimmed={hoveredWireId != null && hoveredWireId !== r.wire.id}
-                onHover={setHoveredWireId}
+                dimmed={dimmed}
+                onHover={(id) => setHoveredWireId(id)}
+                wireRules={wireRules}
               />
             );
           })}
         </g>
 
-        {/* 节点 */}
+        {/* 母线连接点（圆点） */}
+        {busDots.map((dot, i) => (
+          <circle
+            key={`bus-dot-${i}`}
+            cx={dot.x}
+            cy={dot.y}
+            r={3}
+            fill="#975A16"
+            stroke="#B7791F"
+            strokeWidth={0.5}
+          />
+        ))}
+
+        {/* 节点 (skip power nodes — they're rendered as bus bar) */}
         <g id="nodes">
           {data.nodes.map((node) => {
+            if (powerNodeIds.has(node.id)) return null;
             const pos = positions.get(node.id);
             if (!pos) return null;
             const ns = resolveNodeStyle(node.id, node.type, styleConfig);
@@ -231,6 +236,7 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
                 node={node}
                 pos={pos}
                 style={ns}
+                pinRules={pinRules}
                 onPointerDown={onPointerDown}
               />
             );

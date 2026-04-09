@@ -1,4 +1,4 @@
-import type { CircuitNode, NodePosition, NodeStyleConfig } from '../types';
+import type { CircuitNode, NodePosition, NodeStyleConfig, PinRuleConfig } from '../types';
 import { PowerNode } from './nodes/PowerNode';
 import { GroundNode } from './nodes/GroundNode';
 import { FuseNode } from './nodes/FuseNode';
@@ -14,10 +14,27 @@ interface Props {
   node: CircuitNode;
   pos: NodePosition;
   style: Required<NodeStyleConfig>;
+  pinRules?: PinRuleConfig;
   onPointerDown: (e: React.PointerEvent, nodeId: string, pos: NodePosition) => void;
 }
 
-export function DragContainer({ node, pos, style, onPointerDown }: Props) {
+// Node bounding box heights for pin placement
+const NODE_HALF_HEIGHTS: Record<string, number> = {
+  power: 20, ground: 20, fuse: 28, relay: 34, switch: 28,
+  splice: 24, connector: 34, connector_plug: 24, ecu: 38,
+  sensor: 24, actuator: 24, resistor: 20, capacitor: 20,
+  diode: 20, transistor: 20, ic: 30,
+};
+
+function formatPinLabel(pinId: string, nodeId: string, index: number, format?: string): string {
+  if (!format) return pinId;
+  return format
+    .replace('{pinId}', pinId)
+    .replace('{nodeId}', nodeId)
+    .replace('{pinIndex}', String(index + 1));
+}
+
+export function DragContainer({ node, pos, style, pinRules, onPointerDown }: Props) {
   const handlePointerDown = (e: React.PointerEvent) => {
     onPointerDown(e, node.id, pos);
   };
@@ -36,7 +53,7 @@ export function DragContainer({ node, pos, style, onPointerDown }: Props) {
       case 'connector':
         return <ConnectorNode label={node.label} sublabel={node.sublabel} style={style} />;
       case 'connector_plug':
-        return <ConnectorPlugNode label={node.label} sublabel={node.sublabel} style={style} />;
+        return <ConnectorPlugNode label={node.label} sublabel={node.sublabel} pins={node.pins} style={style} />;
       case 'splice':
         return <SpliceNode label={node.label} style={style} />;
       case 'ecu':
@@ -55,6 +72,50 @@ export function DragContainer({ node, pos, style, onPointerDown }: Props) {
     }
   };
 
+  // Render pin labels outside the node
+  const renderPins = () => {
+    if (!node.pins || node.pins.length === 0) return null;
+    const position = pinRules?.labelPosition ?? 'outside';
+    if (position !== 'outside') return null;
+    // Don't show pins inside ECU if configured
+    if (node.type === 'ecu' && !pinRules?.showPinsInsideController) {
+      // Show pins outside only
+    }
+
+    const halfH = NODE_HALF_HEIGHTS[node.type] ?? 20;
+    const topPins = node.pins.slice(0, Math.ceil(node.pins.length / 2));
+    const bottomPins = node.pins.slice(Math.ceil(node.pins.length / 2));
+
+    return (
+      <>
+        {topPins.map((pin, i) => (
+          <text
+            key={`top-${pin}`}
+            x={-20 + i * 20}
+            y={-halfH - 6}
+            textAnchor="middle"
+            fontSize={7}
+            fill="#718096"
+          >
+            {formatPinLabel(pin, node.id, i, pinRules?.labelFormat)}
+          </text>
+        ))}
+        {bottomPins.map((pin, i) => (
+          <text
+            key={`bot-${pin}`}
+            x={-20 + i * 20}
+            y={halfH + 12}
+            textAnchor="middle"
+            fontSize={7}
+            fill="#718096"
+          >
+            {formatPinLabel(pin, node.id, topPins.length + i, pinRules?.labelFormat)}
+          </text>
+        ))}
+      </>
+    );
+  };
+
   return (
     <g
       transform={`translate(${pos.x},${pos.y})`}
@@ -62,6 +123,7 @@ export function DragContainer({ node, pos, style, onPointerDown }: Props) {
       style={{ cursor: 'grab' }}
     >
       {renderInner()}
+      {renderPins()}
     </g>
   );
 }

@@ -1,4 +1,6 @@
 import type { RoutedWire } from '../layout/wireRouter';
+import type { WireRuleConfig } from '../types';
+import { formatWireLabel } from '../styles/defaultStyles';
 
 interface Props {
   routed: RoutedWire;
@@ -7,12 +9,13 @@ interface Props {
   dashArray?: string;
   opacity: number;
   secondaryColor?: string;
+  secondaryWidth?: number;
   separatorYs?: number[];
   dimmed?: boolean;
   onHover?: (wireId: string | null) => void;
+  wireRules?: WireRuleConfig;
 }
 
-/** Compute intersection points between a polyline path and horizontal separator lines */
 function computeCrossings(path: string, separatorYs: number[]): { x: number; y: number }[] {
   const points = parsePath(path);
   const crossings: { x: number; y: number }[] = [];
@@ -43,7 +46,7 @@ function parsePath(path: string): { x: number; y: number }[] {
   return points;
 }
 
-export function WirePath({ routed, color, strokeWidth, dashArray, opacity, secondaryColor, separatorYs, dimmed, onHover }: Props) {
+export function WirePath({ routed, color, strokeWidth, dashArray, opacity, secondaryColor, secondaryWidth, separatorYs, dimmed, onHover, wireRules }: Props) {
   const { wire, path, labelX, labelY } = routed;
 
   const pathPoints = parsePath(path);
@@ -52,6 +55,8 @@ export function WirePath({ routed, color, strokeWidth, dashArray, opacity, secon
 
   const crossings = separatorYs ? computeCrossings(path, separatorYs) : [];
   const effectiveOpacity = dimmed ? 0.15 : opacity;
+  const labelVisible = wireRules?.labelVisible ?? true;
+  const secWidth = secondaryWidth ?? wireRules?.secondaryWidth ?? 1.5;
 
   return (
     <g
@@ -60,14 +65,7 @@ export function WirePath({ routed, color, strokeWidth, dashArray, opacity, secon
       style={{ transition: 'opacity 0.15s' }}
       opacity={effectiveOpacity}
     >
-      {/* 透明宽路径扩大 hover 区域 */}
-      <path
-        d={path}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={Math.max(strokeWidth, 8)}
-      />
-      {/* 主色底层 */}
+      <path d={path} fill="none" stroke="transparent" strokeWidth={Math.max(strokeWidth, 8)} />
       <path
         d={path}
         fill="none"
@@ -77,27 +75,26 @@ export function WirePath({ routed, color, strokeWidth, dashArray, opacity, secon
         strokeLinejoin="round"
         strokeDasharray={dashArray}
       />
-      {/* 双色：副色中间条纹 */}
       {secondaryColor && (
         <path
           d={path}
           fill="none"
           stroke={secondaryColor}
-          strokeWidth={1.5}
+          strokeWidth={secWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
       )}
-      {/* 端点圆点 */}
       {startPt && <circle cx={startPt.x} cy={startPt.y} r={2.5} fill={color} />}
       {endPt && <circle cx={endPt.x} cy={endPt.y} r={2.5} fill={color} />}
-      {/* 跨层穿越点 */}
       {crossings.map((pt, i) => (
         <circle key={i} cx={pt.x} cy={pt.y} r={3} fill="white" stroke={color} strokeWidth={1.5} />
       ))}
-      <text x={labelX} y={labelY} fontSize={8} fill="#1a202c">
-        {wire.color} {wire.gauge}mm²
-      </text>
+      {labelVisible && (
+        <text x={labelX} y={labelY} fontSize={8} fill="#1a202c">
+          {formatWireLabel(wire.color, wire.gauge, wireRules)}
+        </text>
+      )}
     </g>
   );
 }

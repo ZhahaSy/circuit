@@ -81,6 +81,63 @@ export function routeWires(
     }
   }
 
+  // Build pin X position map: pin X aligns directly to the peer node's X
+  // For connector_plug: if a pin has peers on both sides (pass-through), align to
+  // the downstream (bottom) peer so the through-line is straight; others fold in.
+  const pinXMap = new Map<string, number>(); // key: "nodeId:pin" -> absolute X
+
+  // First pass: collect all peers for each connector_plug pin, grouped by side
+  const plugPinPeers = new Map<string, { peerX: number; side: 'top' | 'bottom' }[]>();
+  for (const wire of wires) {
+    for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
+      if (!ep.pin) continue;
+      const epNode = nodeMap?.get(ep.nodeId);
+      if (epNode?.type !== 'connector_plug') continue;
+      const key = `${ep.nodeId}:${ep.pin}`;
+      const epCenter = positions.get(ep.nodeId);
+      const peerCenter = positions.get(peer.nodeId);
+      if (!epCenter || !peerCenter) continue;
+      const side: 'top' | 'bottom' = peerCenter.y < epCenter.y ? 'top' : 'bottom';
+      if (!plugPinPeers.has(key)) plugPinPeers.set(key, []);
+      plugPinPeers.get(key)!.push({ peerX: peerCenter.x, side });
+    }
+  }
+  // Resolve connector_plug pin X
+  for (const [key, peers] of plugPinPeers) {
+    const topPeers = peers.filter(p => p.side === 'top');
+    const bottomPeers = peers.filter(p => p.side === 'bottom');
+    if (topPeers.length > 0 && bottomPeers.length > 0) {
+      // Pass-through pin: align to the downstream (bottom) peer for a straight through-line
+      pinXMap.set(key, bottomPeers[0].peerX);
+    } else {
+      // Single-side: align to the only peer
+      pinXMap.set(key, peers[0].peerX);
+    }
+  }
+
+  // Second pass: non-connector_plug pins
+  for (const wire of wires) {
+    for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
+      if (!ep.pin) continue;
+      const key = `${ep.nodeId}:${ep.pin}`;
+      if (pinXMap.has(key)) continue;
+      const peerCenter = positions.get(peer.nodeId);
+      if (!peerCenter) continue;
+      pinXMap.set(key, peerCenter.x);
+    }
+  }
+
+  // Helper: get pin X offset from center
+  function pinXOffset(nodeId: string, pin: string | undefined): number {
+    if (!pin) return 0;
+    const key = `${nodeId}:${pin}`;
+    const absX = pinXMap.get(key);
+    if (absX == null) return 0;
+    const center = positions.get(nodeId);
+    if (!center) return 0;
+    return absX - center.x;
+  }
+
   // ── Phase 1: Classify wires ──
   // Track how many wires share the same vertical column (same X)
   // so we can offset them to avoid overlap.
@@ -105,11 +162,13 @@ export function routeWires(
     if (fromIsPower || toIsPower) {
       const powerNodeId = fromIsPower ? wire.from.nodeId : wire.to.nodeId;
       const otherNodeId = fromIsPower ? wire.to.nodeId : wire.from.nodeId;
+      const otherPin = fromIsPower ? wire.to.pin : wire.from.pin;
       const powerPos = positions.get(powerNodeId)!;
       const otherCenter = positions.get(otherNodeId)!;
       const otherNode = nodeMap?.get(otherNodeId);
 
-      const busX = otherCenter.x;
+      const pOffset = pinXOffset(otherNodeId, otherPin);
+      const busX = otherCenter.x + pOffset;
       const busY = powerPos.y;
       const otherPortY = otherNode
         ? getPortY(otherCenter.y, busY, otherNode.type)
@@ -128,8 +187,11 @@ export function routeWires(
       ? getPortY(toCenter.y, fromCenter.y, toNode.type)
       : toCenter.y;
 
-    const fromPos = { x: fromCenter.x, y: fromPortY };
-    const toPos = { x: toCenter.x, y: toPortY };
+    const fromPinOffset = pinXOffset(wire.from.nodeId, wire.from.pin);
+    const toPinOffset = pinXOffset(wire.to.nodeId, wire.to.pin);
+
+    const fromPos = { x: fromCenter.x + fromPinOffset, y: fromPortY };
+    const toPos = { x: toCenter.x + toPinOffset, y: toPortY };
 
     if (Math.abs(fromCenter.x - toCenter.x) < EPS) {
       // Vertical wire — group by X for offset
@@ -206,12 +268,103 @@ export function routeWires(
     }
   }
 
-  // ── Phase 4: Route non-vertical wires with channel separation ──
-  needsChannel.sort((a, b) => a.midY - b.midY || a.fromPos.x - b.fromPos.x);
-
-  // Group by similar midY (within 10px)
-  const grouped = new Map<number, typeof needsChannel>();
+  // ── Phase 4: Route non-vertical wires ──
+  // First, detect convergence groups: wires sharing the same endpoint
+  // key = rounded "x,y" of the shared endpoint
+  const convergeByTo = new Map<string, typeof needsChannel>();
+  const convergeByFrom = new Map<string, typeof needsChannel>();
   for (const item of needsChannel) {
+    const toKey = `${Math.round(item.toPos.x)},${Math.round(item.toPos.y)}`;
+    if (!convergeByTo.has(toKey)) convergeByTo.set(toKey, []);
+    convergeByTo.get(toKey)!.push(item);
+    const fromKey = `${Math.round(item.fromPos.x)},${Math.round(item.fromPos.y)}`;
+    if (!convergeByFrom.has(fromKey)) convergeByFrom.set(fromKey, []);
+    convergeByFrom.get(fromKey)!.push(item);
+  }
+
+  // Identify wires that belong to a convergence group (2+ wires sharing an endpoint)
+  const handledWires = new Set<string>();
+
+  // Route convergence groups (shared toPos)
+  for (const [, group] of convergeByTo) {
+    if (group.length < 2) continue;
+    // Sort by horizontal distance to convergence point — closest first
+    group.sort((a, b) => Math.abs(a.fromPos.x - a.toPos.x) - Math.abs(b.fromPos.x - b.toPos.x));
+
+    const CONVERGE_OFFSET = 15;
+    group.forEach((item, i) => {
+      const { wire, fromPos, toPos } = item;
+      handledWires.add(wire.id);
+
+      let points: { x: number; y: number }[];
+      if (i === 0) {
+        // Closest wire: straight vertical (pin X already aligned to this peer)
+        points = [fromPos, toPos];
+      } else {
+        // Other wires: fold close to the convergence point
+        const goingDown = fromPos.y < toPos.y;
+        const foldY = goingDown
+          ? toPos.y - CONVERGE_OFFSET - (i - 1) * channelSpacing
+          : toPos.y + CONVERGE_OFFSET + (i - 1) * channelSpacing;
+        points = [
+          fromPos,
+          { x: fromPos.x, y: foldY },
+          { x: toPos.x, y: foldY },
+          toPos,
+        ];
+      }
+
+      const clean = simplifyPath(points);
+      const path = clean.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+      const midPt = clean[Math.floor(clean.length / 2)];
+      routed.push({ wire, path, labelX: midPt.x + 8, labelY: midPt.y - 4 });
+    });
+  }
+
+  // Route convergence groups (shared fromPos)
+  for (const [, group] of convergeByFrom) {
+    if (group.length < 2) continue;
+    // Filter out already handled wires
+    const remaining = group.filter(item => !handledWires.has(item.wire.id));
+    if (remaining.length < 2) continue;
+
+    remaining.sort((a, b) => Math.abs(a.toPos.x - a.fromPos.x) - Math.abs(b.toPos.x - b.fromPos.x));
+
+    const CONVERGE_OFFSET = 15;
+    remaining.forEach((item, i) => {
+      const { wire, fromPos, toPos } = item;
+      handledWires.add(wire.id);
+
+      let points: { x: number; y: number }[];
+      if (i === 0) {
+        // Closest wire: straight vertical (pin X already aligned to this peer)
+        points = [fromPos, toPos];
+      } else {
+        const goingDown = fromPos.y < toPos.y;
+        const foldY = goingDown
+          ? fromPos.y + CONVERGE_OFFSET + (i - 1) * channelSpacing
+          : fromPos.y - CONVERGE_OFFSET - (i - 1) * channelSpacing;
+        points = [
+          fromPos,
+          { x: fromPos.x, y: foldY },
+          { x: toPos.x, y: foldY },
+          toPos,
+        ];
+      }
+
+      const clean = simplifyPath(points);
+      const path = clean.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+      const midPt = clean[Math.floor(clean.length / 2)];
+      routed.push({ wire, path, labelX: midPt.x + 8, labelY: midPt.y - 4 });
+    });
+  }
+
+  // Route remaining non-convergence wires (original logic)
+  const remainingChannel = needsChannel.filter(item => !handledWires.has(item.wire.id));
+  remainingChannel.sort((a, b) => a.midY - b.midY || a.fromPos.x - b.fromPos.x);
+
+  const grouped = new Map<number, typeof remainingChannel>();
+  for (const item of remainingChannel) {
     const key = Math.round(item.midY / 10) * 10;
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(item);
@@ -253,12 +406,7 @@ export function routeWires(
       const clean = simplifyPath(points);
       const path = clean.map((p, j) => `${j === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
       const midPt = clean[Math.floor(clean.length / 2)];
-      routed.push({
-        wire,
-        path,
-        labelX: midPt.x + 8,
-        labelY: midPt.y - 4,
-      });
+      routed.push({ wire, path, labelX: midPt.x + 8, labelY: midPt.y - 4 });
     });
   }
 

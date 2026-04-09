@@ -95,7 +95,8 @@ export function autoLayers(data: CircuitData): LayerConfig[] {
   };
 
   const layers: LayerConfig[] = [];
-  for (const depth of sortedDepths) {
+  for (let i = 0; i < sortedDepths.length; i++) {
+    const depth = sortedDepths[i];
     const group = depthGroups.get(depth)!;
     const types = [...group.types];
     const labels = types.map(t => LABEL_MAP[t] || t);
@@ -105,6 +106,20 @@ export function autoLayers(data: CircuitData): LayerConfig[] {
       types,
       nodeIds: group.ids,
     });
+
+    // 在保险丝/继电器层、ECU/模块层后插入线束层
+    if (i < sortedDepths.length - 1) {
+      const needsHarness = types.includes('fuse') || types.includes('relay')
+        || types.includes('ecu') || types.includes('ic');
+      if (needsHarness) {
+        layers.push({
+          id: `harness_${depth}`,
+          label: '线束',
+          types: [],
+          nodeIds: [],
+        });
+      }
+    }
   }
 
   return layers;

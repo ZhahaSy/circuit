@@ -36,6 +36,66 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
     const layerYMap = computeLayerYPositions(layers);
     const internalSvgRef = useRef<SVGSVGElement | null>(null);
 
+    // Compute pin info per node: X offset (relative to center) + direction (top/bottom) + label
+    // For connector_plug: if pass-through (peers on both sides), align to downstream peer
+    const plugPinPeers = new Map<string, { peerX: number; side: 'top' | 'bottom' }[]>();
+    const pinInfoMap = new Map<string, { xOffset: number; side: 'top' | 'bottom'; label?: string }[]>();
+    const seenPinKeys = new Set<string>();
+
+    // First pass: collect connector_plug pin peers
+    for (const w of data.wires) {
+      for (const [ep, peer] of [[w.from, w.to], [w.to, w.from]] as const) {
+        if (!ep.pin) continue;
+        const epNode = nodeMap.get(ep.nodeId);
+        if (epNode?.type !== 'connector_plug') continue;
+        const nodeCenter = positions.get(ep.nodeId);
+        const peerCenter = positions.get(peer.nodeId);
+        if (!nodeCenter || !peerCenter) continue;
+        const key = `${ep.nodeId}:${ep.pin}`;
+        const side: 'top' | 'bottom' = peerCenter.y < nodeCenter.y ? 'top' : 'bottom';
+        if (!plugPinPeers.has(key)) plugPinPeers.set(key, []);
+        plugPinPeers.get(key)!.push({ peerX: peerCenter.x, side });
+      }
+    }
+    // Resolve connector_plug pin xOffset: pass-through → downstream peer; single-side → only peer
+    const plugPinXOffset = new Map<string, number>();
+    for (const [key, peers] of plugPinPeers) {
+      const nodeId = key.split(':')[0];
+      const nodeCenter = positions.get(nodeId);
+      if (!nodeCenter) continue;
+      const topPeers = peers.filter(p => p.side === 'top');
+      const bottomPeers = peers.filter(p => p.side === 'bottom');
+      if (topPeers.length > 0 && bottomPeers.length > 0) {
+        plugPinXOffset.set(key, bottomPeers[0].peerX - nodeCenter.x);
+      } else {
+        plugPinXOffset.set(key, peers[0].peerX - nodeCenter.x);
+      }
+    }
+
+    // Second pass: build pinInfoMap
+    for (const w of data.wires) {
+      for (const [ep, peer] of [[w.from, w.to], [w.to, w.from]] as const) {
+        const pinKey = ep.pin ?? `__nopin_${peer.nodeId}`;
+        const key = `${ep.nodeId}:${pinKey}`;
+        if (seenPinKeys.has(key)) continue;
+        seenPinKeys.add(key);
+        const nodeCenter = positions.get(ep.nodeId);
+        const peerCenter = positions.get(peer.nodeId);
+        if (!nodeCenter || !peerCenter) continue;
+        const epNode = nodeMap.get(ep.nodeId);
+        let xOffset: number;
+        if (epNode?.type === 'connector_plug' && ep.pin) {
+          xOffset = plugPinXOffset.get(`${ep.nodeId}:${ep.pin}`) ?? 0;
+        } else {
+          xOffset = ep.pin ? peerCenter.x - nodeCenter.x : 0;
+        }
+        const side: 'top' | 'bottom' = peerCenter.y < nodeCenter.y ? 'top' : 'bottom';
+        const label = ep.pin ? `${ep.nodeId}-${ep.pin}` : undefined;
+        if (!pinInfoMap.has(ep.nodeId)) pinInfoMap.set(ep.nodeId, []);
+        pinInfoMap.get(ep.nodeId)!.push({ xOffset, side, label });
+      }
+    }
+
     const [layerDrag, setLayerDrag] = useState<LayerDragState | null>(null);
     const [hoveredWireId, setHoveredWireId] = useState<string | null>(null);
 
@@ -253,6 +313,7 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
                 pos={pos}
                 style={ns}
                 pinRules={pinRules}
+                pinInfo={pinInfoMap.get(node.id)}
                 onPointerDown={onPointerDown}
               />
             );

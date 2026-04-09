@@ -10,11 +10,18 @@ import { RelayNode } from './nodes/RelayNode';
 import { ConnectorPlugNode } from './nodes/ConnectorPlugNode';
 import { CustomSvgNode } from './nodes/CustomSvgNode';
 
+export interface PinInfo {
+  xOffset: number;
+  side: 'top' | 'bottom';
+  label?: string; // e.g. "IP25-1"
+}
+
 interface Props {
   node: CircuitNode;
   pos: NodePosition;
   style: Required<NodeStyleConfig>;
   pinRules?: PinRuleConfig;
+  pinInfo?: PinInfo[];
   onPointerDown: (e: React.PointerEvent, nodeId: string, pos: NodePosition) => void;
 }
 
@@ -34,7 +41,7 @@ function formatPinLabel(pinId: string, nodeId: string, index: number, format?: s
     .replace('{pinIndex}', String(index + 1));
 }
 
-export function DragContainer({ node, pos, style, pinRules, onPointerDown }: Props) {
+export function DragContainer({ node, pos, style, pinRules, pinInfo, onPointerDown }: Props) {
   const handlePointerDown = (e: React.PointerEvent) => {
     onPointerDown(e, node.id, pos);
   };
@@ -53,11 +60,11 @@ export function DragContainer({ node, pos, style, pinRules, onPointerDown }: Pro
       case 'connector':
         return <ConnectorNode label={node.label} sublabel={node.sublabel} style={style} />;
       case 'connector_plug':
-        return <ConnectorPlugNode label={node.label} sublabel={node.sublabel} pins={node.pins} style={style} />;
+        return <ConnectorPlugNode label={node.label} style={style} pinInfo={pinInfo} />;
       case 'splice':
         return <SpliceNode label={node.label} style={style} />;
       case 'ecu':
-        return <EcuNode label={node.label} sublabel={node.sublabel} style={style} />;
+        return <EcuNode label={node.label} sublabel={node.sublabel} style={style} pins={node.pins} pinInfo={pinInfo} />;
       case 'switch':
         return <SwitchNode label={node.label} sublabel={node.sublabel} style={style} />;
       case 'relay':

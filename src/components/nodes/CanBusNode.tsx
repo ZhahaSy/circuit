@@ -8,26 +8,53 @@ interface Props {
 }
 
 /**
- * CAN 总线节点 — 两条水平平行线（CAN-H / CAN-L）
- * 连接线通过 45° 斜线分叉接入
+ * CAN 总线节点 — 两条水平平行线 + 桥形连接符号
+ * 连接符号: 中间V形入口 + 两侧弧形展开 + 末端下垂连接总线
  */
 export function CanBusNode({ label, style, pinInfo }: Props) {
-  const busGap = 8;       // CAN-H 和 CAN-L 之间的间距
-  const busHalfLen = 60;  // 总线半长度
-  const forkLen = 10;     // 45° 斜线分叉长度
+  const busGap = 8;
+  const busHalfLen = 60;
 
-  // 连接点 X 位置（从 pinInfo 获取）
   const connXs: number[] = pinInfo
     ? pinInfo.map(p => p.xOffset).sort((a, b) => a - b)
     : [0];
 
-  // 总线 Y 位置
-  const topY = -busGap / 2;   // CAN-H
-  const botY = busGap / 2;    // CAN-L
+  const topY = -busGap / 2;
+  const botY = busGap / 2;
 
-  // 总线水平范围：覆盖所有连接点 + 余量
   const minX = Math.min(-busHalfLen, ...connXs.map(x => x - 20));
   const maxX = Math.max(busHalfLen, ...connXs.map(x => x + 20));
+
+  /**
+   * 桥形连接符号（参考原始 SVG path 等比缩放）
+   * 从线路入口（V形顶部）向下展开连接到 CAN-H / CAN-L
+   *
+   * @param cx 连接点中心 X
+   * @param fromTop true=线路从上方接入
+   */
+  function bridgePath(cx: number, fromTop: boolean): string {
+    // 符号参数（基于原始 path 缩放）
+    const hw = 16;        // 半宽（到总线连接点的水平距离）
+    const notchDx = 1.6;  // V 形缺口半宽
+    const notchDy = 2.7;  // V 形缺口深度
+    const curveDy = 2.5;  // 弧形深度
+    const dropDy = 2;     // 末端下垂
+
+    const dir = fromTop ? -1 : 1; // 方向：fromTop 时符号向上展开
+    // V 形顶点 Y（线路连接点）
+    const tipY = fromTop ? topY - (notchDy + curveDy + dropDy) : botY + (notchDy + curveDy + dropDy);
+
+    // 从左端开始画
+    return [
+      `M ${cx - hw} ${(fromTop ? topY : botY) - dir * dropDy}`,
+      `l 0 ${dir * dropDy}`,
+      `c 0 0, 0.5 ${dir * curveDy}, ${hw - notchDx} ${dir * curveDy}`,
+      `l ${notchDx} ${dir * notchDy}`,
+      `l ${notchDx} ${-dir * notchDy}`,
+      `c ${hw - notchDx - 0.5} 0, ${hw - notchDx} ${-dir * curveDy}, ${hw - notchDx} ${-dir * curveDy}`,
+      `l 0 ${-dir * dropDy}`,
+    ].join(' ');
+  }
 
   return (
     <>
@@ -38,24 +65,17 @@ export function CanBusNode({ label, style, pinInfo }: Props) {
       <line x1={minX} y1={botY} x2={maxX} y2={botY}
         stroke={style.stroke} strokeWidth={style.strokeWidth} />
 
-      {/* 每个连接点的 45° 分叉 */}
+      {/* 每个连接点的桥形符号 */}
       {connXs.map((cx, i) => {
-        // 判断连接方向（从上方还是下方接入）
         const fromTop = pinInfo?.[i]?.side === 'top';
-        // 分叉起点 Y（线路到达的位置）
-        const entryY = fromTop ? topY - forkLen : botY + forkLen;
         return (
           <g key={i}>
-            {/* 主干到分叉点 */}
-            {/* 分叉到 CAN-H */}
-            <line x1={cx} y1={entryY} x2={cx - forkLen / 2} y2={topY}
-              stroke={style.stroke} strokeWidth={style.strokeWidth} />
-            {/* 分叉到 CAN-L */}
-            <line x1={cx} y1={entryY} x2={cx + forkLen / 2} y2={botY}
-              stroke={style.stroke} strokeWidth={style.strokeWidth} />
-            {/* 连接点圆点 */}
-            <circle cx={cx - forkLen / 2} cy={topY} r={2} fill={style.stroke} />
-            <circle cx={cx + forkLen / 2} cy={botY} r={2} fill={style.stroke} />
+            <path d={bridgePath(cx, fromTop)} fill="none"
+              stroke={style.stroke} strokeWidth={style.strokeWidth}
+              strokeLinecap="round" strokeLinejoin="round" />
+            {/* 总线连接点圆点 */}
+            <circle cx={cx - 16} cy={fromTop ? topY : botY} r={2} fill={style.stroke} />
+            <circle cx={cx + 16} cy={fromTop ? topY : botY} r={2} fill={style.stroke} />
           </g>
         );
       })}

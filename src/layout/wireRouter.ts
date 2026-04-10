@@ -26,7 +26,7 @@ const PORT_OFFSETS: Record<ComponentType, { top: number; bottom: number }> = {
   diode:          { top: -20, bottom: 20 },
   transistor:     { top: -20, bottom: 20 },
   ic:             { top: -30, bottom: 30 },
-  can:            { top: -14, bottom: 14 },
+  can:            { top: -11, bottom: 11 },
 };
 
 function getPortY(nodeY: number, peerY: number, type: ComponentType): number {

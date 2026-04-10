@@ -52,7 +52,7 @@ export function autoLayers(data: CircuitData): LayerConfig[] {
   for (const node of nodes) {
     if (node.type === 'power') {
       nodeDepth.set(node.id, 0);
-    } else if (node.type === 'ground') {
+    } else if (node.type === 'ground' || node.type === 'can') {
       nodeDepth.set(node.id, Infinity);
     } else {
       const dp = distFromPower.get(node.id) ?? Infinity;
@@ -67,7 +67,7 @@ export function autoLayers(data: CircuitData): LayerConfig[] {
   }
   const groundDepth = maxDepth + 1;
   for (const node of nodes) {
-    if (node.type === 'ground') nodeDepth.set(node.id, groundDepth);
+    if (node.type === 'ground' || node.type === 'can') nodeDepth.set(node.id, groundDepth);
     if (nodeDepth.get(node.id) === 999) nodeDepth.set(node.id, groundDepth - 1);
   }
 

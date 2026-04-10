@@ -152,6 +152,56 @@ export function routeWires(
     }
   }
 
+  // Post-process: enforce min 100px spacing & keep CAN pins adjacent per node+side
+  const MIN_PIN_SPACING = 100;
+  {
+    // Collect all resolved pins grouped by nodeId
+    const nodePins = new Map<string, { pin: string; absX: number; peerY: number; isCan: boolean }[]>();
+    for (const wire of wires) {
+      for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
+        if (!ep.pin) continue;
+        const key = `${ep.nodeId}:${ep.pin}`;
+        const absX = pinXMap.get(key);
+        if (absX == null) continue;
+        const peerCenter = positions.get(peer.nodeId);
+        const nodeCenter = positions.get(ep.nodeId);
+        if (!peerCenter || !nodeCenter) continue;
+        const peerNode = nodeMap?.get(peer.nodeId);
+        if (!nodePins.has(ep.nodeId)) nodePins.set(ep.nodeId, []);
+        const existing = nodePins.get(ep.nodeId)!;
+        if (!existing.some(p => p.pin === ep.pin)) {
+          existing.push({ pin: ep.pin, absX, peerY: peerCenter.y, isCan: peerNode?.type === 'can' });
+        }
+      }
+    }
+
+    for (const [nodeId, pins] of nodePins) {
+      const nodeCenter = positions.get(nodeId);
+      if (!nodeCenter || pins.length < 2) continue;
+
+      for (const side of ['top', 'bottom'] as const) {
+        const sidePins = pins.filter(p =>
+          side === 'top' ? p.peerY < nodeCenter.y : p.peerY >= nodeCenter.y
+        );
+        if (sidePins.length < 2) continue;
+
+        // Sort: CAN pins last (adjacent), then by absX
+        sidePins.sort((a, b) => {
+          if (a.isCan && !b.isCan) return 1;
+          if (!a.isCan && b.isCan) return -1;
+          return a.absX - b.absX;
+        });
+
+        const totalWidth = (sidePins.length - 1) * MIN_PIN_SPACING;
+        const startX = nodeCenter.x - totalWidth / 2;
+        for (let i = 0; i < sidePins.length; i++) {
+          const newX = startX + i * MIN_PIN_SPACING;
+          pinXMap.set(`${nodeId}:${sidePins[i].pin}`, newX);
+        }
+      }
+    }
+  }
+
   // Helper: get pin X offset from center
   function pinXOffset(nodeId: string, pin: string | undefined): number {
     if (!pin) return 0;

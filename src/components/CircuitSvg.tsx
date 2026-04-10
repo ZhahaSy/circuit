@@ -96,8 +96,36 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
         }
         const side: 'top' | 'bottom' = peerCenter.y < nodeCenter.y ? 'top' : 'bottom';
         const label = ep.pin ? `${ep.nodeId}-${ep.pin}` : undefined;
+        const peerIsCan = peerNode?.type === 'can';
         if (!pinInfoMap.has(ep.nodeId)) pinInfoMap.set(ep.nodeId, []);
-        pinInfoMap.get(ep.nodeId)!.push({ xOffset, side, label });
+        pinInfoMap.get(ep.nodeId)!.push({ xOffset, side, label, _canGroup: peerIsCan ? peer.nodeId : undefined });
+      }
+    }
+
+    // Post-process: enforce min 100px spacing & keep CAN pins adjacent
+    const MIN_PIN_SPACING = 100;
+    for (const [_nodeId, pins] of pinInfoMap) {
+      // Process each side independently
+      for (const side of ['top', 'bottom'] as const) {
+        const sidePins = pins.filter(p => p.side === side);
+        if (sidePins.length < 2) continue;
+
+        // Sort: CAN-grouped pins adjacent, then by original xOffset
+        sidePins.sort((a, b) => {
+          const aGroup = (a as any)._canGroup ?? '';
+          const bGroup = (b as any)._canGroup ?? '';
+          if (aGroup && aGroup === bGroup) return a.xOffset - b.xOffset;
+          if (aGroup && !bGroup) return 1;
+          if (!aGroup && bGroup) return -1;
+          return a.xOffset - b.xOffset;
+        });
+
+        // Re-space with minimum gap
+        const totalWidth = (sidePins.length - 1) * MIN_PIN_SPACING;
+        const startX = -totalWidth / 2;
+        for (let i = 0; i < sidePins.length; i++) {
+          sidePins[i].xOffset = startX + i * MIN_PIN_SPACING;
+        }
       }
     }
 

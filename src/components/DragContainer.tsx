@@ -28,7 +28,7 @@ const NODE_HALF_HEIGHTS: Record<string, number> = {
   power: 20, ground: 20, fuse: 28, relay: 34, switch: 28,
   splice: 4, connector: 34, connector_plug: 24, ecu: 38,
   sensor: 24, actuator: 24, resistor: 20, capacitor: 20,
-  diode: 20, transistor: 20, ic: 30, can: 30,
+  diode: 20, transistor: 20, ic: 30, can: 14,
 };
 
 function formatPinLabel(pinId: string, nodeId: string, index: number, format?: string): string {

@@ -280,42 +280,36 @@ export function routeWires(
   const handledWires = new Set<string>();
 
   // Route convergence groups (shared toPos)
+  // Pattern: vertical → horizontal → 45° diagonal into convergence point
+  // Like: M(fx,fy) → L(fx, foldY) → L(diagX, foldY) → L(tx, ty)
   for (const [, group] of convergeByTo) {
     if (group.length < 2) continue;
-    // Sort by horizontal distance to convergence point — closest first (vertical = 0 distance)
     group.sort((a, b) => Math.abs(a.fromPos.x - a.toPos.x) - Math.abs(b.fromPos.x - b.toPos.x));
 
-    const CONVERGE_OFFSET = 15;
+    const DIAG_LEN = 10; // 45° diagonal segment length
     group.forEach((item, i) => {
       const { wire, fromPos, toPos } = item;
       handledWires.add(wire.id);
 
       let points: { x: number; y: number }[];
       if (Math.abs(fromPos.x - toPos.x) < EPS) {
-        // Already vertical — straight line regardless of index
+        // Already vertical — straight line
         points = [fromPos, toPos];
-      } else if (i === 0) {
-        // Closest non-vertical wire: L-shaped fold near the convergence point
-        const goingDown = fromPos.y < toPos.y;
-        const foldY = goingDown
-          ? toPos.y - CONVERGE_OFFSET
-          : toPos.y + CONVERGE_OFFSET;
-        points = [
-          fromPos,
-          { x: fromPos.x, y: foldY },
-          { x: toPos.x, y: foldY },
-          toPos,
-        ];
       } else {
-        // Other wires: fold close to the convergence point, stacked
+        // Non-vertical: vertical → horizontal → 45° diagonal into target
         const goingDown = fromPos.y < toPos.y;
-        const foldY = goingDown
-          ? toPos.y - CONVERGE_OFFSET - i * channelSpacing
-          : toPos.y + CONVERGE_OFFSET + i * channelSpacing;
+        const dx = toPos.x - fromPos.x; // signed horizontal distance
+        const diagDx = Math.sign(dx) * DIAG_LEN;
+        const diagDy = goingDown ? DIAG_LEN : -DIAG_LEN;
+        // Diagonal start point (where horizontal segment ends)
+        const diagStartX = toPos.x - diagDx;
+        const diagStartY = toPos.y - diagDy;
+        // Fold Y = same as diagonal start Y, offset by index to avoid overlap
+        const foldY = diagStartY + (goingDown ? -1 : 1) * i * channelSpacing;
         points = [
           fromPos,
           { x: fromPos.x, y: foldY },
-          { x: toPos.x, y: foldY },
+          { x: diagStartX, y: foldY },
           toPos,
         ];
       }
@@ -330,41 +324,31 @@ export function routeWires(
   // Route convergence groups (shared fromPos)
   for (const [, group] of convergeByFrom) {
     if (group.length < 2) continue;
-    // Filter out already handled wires
     const remaining = group.filter(item => !handledWires.has(item.wire.id));
     if (remaining.length < 2) continue;
 
     remaining.sort((a, b) => Math.abs(a.toPos.x - a.fromPos.x) - Math.abs(b.toPos.x - b.fromPos.x));
 
-    const CONVERGE_OFFSET = 15;
+    const DIAG_LEN = 10;
     remaining.forEach((item, i) => {
       const { wire, fromPos, toPos } = item;
       handledWires.add(wire.id);
 
       let points: { x: number; y: number }[];
       if (Math.abs(fromPos.x - toPos.x) < EPS) {
-        // Already vertical — straight line
         points = [fromPos, toPos];
-      } else if (i === 0) {
-        // Closest non-vertical wire: L-shaped fold near the source
-        const goingDown = fromPos.y < toPos.y;
-        const foldY = goingDown
-          ? fromPos.y + CONVERGE_OFFSET
-          : fromPos.y - CONVERGE_OFFSET;
-        points = [
-          fromPos,
-          { x: fromPos.x, y: foldY },
-          { x: toPos.x, y: foldY },
-          toPos,
-        ];
       } else {
+        // 45° diagonal out of source → horizontal → vertical to target
         const goingDown = fromPos.y < toPos.y;
-        const foldY = goingDown
-          ? fromPos.y + CONVERGE_OFFSET + i * channelSpacing
-          : fromPos.y - CONVERGE_OFFSET - i * channelSpacing;
+        const dx = toPos.x - fromPos.x;
+        const diagDx = Math.sign(dx) * DIAG_LEN;
+        const diagDy = goingDown ? DIAG_LEN : -DIAG_LEN;
+        const diagEndX = fromPos.x + diagDx;
+        const diagEndY = fromPos.y + diagDy;
+        const foldY = diagEndY + (goingDown ? 1 : -1) * i * channelSpacing;
         points = [
           fromPos,
-          { x: fromPos.x, y: foldY },
+          { x: diagEndX, y: foldY },
           { x: toPos.x, y: foldY },
           toPos,
         ];

@@ -116,6 +116,22 @@ export function routeWires(
     }
   }
 
+  // CAN bus pins: fixed offsets (pin 0 = CAN-H at -5, pin 1 = CAN-L at +5)
+  const CAN_PIN_OFFSETS: Record<string, number> = { '0': -5, '1': 5 };
+  for (const wire of wires) {
+    for (const ep of [wire.from, wire.to]) {
+      if (!ep.pin) continue;
+      const epNode = nodeMap?.get(ep.nodeId);
+      if (epNode?.type !== 'can') continue;
+      const key = `${ep.nodeId}:${ep.pin}`;
+      if (pinXMap.has(key)) continue;
+      const center = positions.get(ep.nodeId);
+      if (!center) continue;
+      const offset = CAN_PIN_OFFSETS[ep.pin] ?? 0;
+      pinXMap.set(key, center.x + offset);
+    }
+  }
+
   // Second pass: non-connector_plug pins
   for (const wire of wires) {
     for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {

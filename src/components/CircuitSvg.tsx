@@ -89,7 +89,7 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
           xOffset = plugPinXOffset.get(`${ep.nodeId}:${ep.pin}`) ?? 0;
         } else if (peerNode?.type === 'can' && peer.pin) {
           // CAN bus pins have fixed offsets: pin 0 = -5 (CAN-H), pin 1 = +5 (CAN-L)
-          const canPinOffset = peer.pin === '0' ? -5 : peer.pin === '1' ? 5 : 0;
+          const canPinOffset = peer.pin === '0' ? -10 : peer.pin === '1' ? 10 : 0;
           xOffset = peerCenter.x + canPinOffset - nodeCenter.x;
         } else {
           xOffset = ep.pin ? peerCenter.x - nodeCenter.x : 0;

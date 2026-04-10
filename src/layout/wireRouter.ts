@@ -117,7 +117,7 @@ export function routeWires(
   }
 
   // CAN bus pins: fixed offsets (pin 0 = CAN-H at -5, pin 1 = CAN-L at +5)
-  const CAN_PIN_OFFSETS: Record<string, number> = { '0': -5, '1': 5 };
+  const CAN_PIN_OFFSETS: Record<string, number> = { '0': -10, '1': 10 };
   for (const wire of wires) {
     for (const ep of [wire.from, wire.to]) {
       if (!ep.pin) continue;

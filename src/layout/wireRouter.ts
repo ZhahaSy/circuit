@@ -282,7 +282,7 @@ export function routeWires(
   // Route convergence groups (shared toPos)
   for (const [, group] of convergeByTo) {
     if (group.length < 2) continue;
-    // Sort by horizontal distance to convergence point — closest first
+    // Sort by horizontal distance to convergence point — closest first (vertical = 0 distance)
     group.sort((a, b) => Math.abs(a.fromPos.x - a.toPos.x) - Math.abs(b.fromPos.x - b.toPos.x));
 
     const CONVERGE_OFFSET = 15;
@@ -291,15 +291,27 @@ export function routeWires(
       handledWires.add(wire.id);
 
       let points: { x: number; y: number }[];
-      if (i === 0) {
-        // Closest wire: straight vertical (pin X already aligned to this peer)
+      if (Math.abs(fromPos.x - toPos.x) < EPS) {
+        // Already vertical — straight line regardless of index
         points = [fromPos, toPos];
-      } else {
-        // Other wires: fold close to the convergence point
+      } else if (i === 0) {
+        // Closest non-vertical wire: L-shaped fold near the convergence point
         const goingDown = fromPos.y < toPos.y;
         const foldY = goingDown
-          ? toPos.y - CONVERGE_OFFSET - (i - 1) * channelSpacing
-          : toPos.y + CONVERGE_OFFSET + (i - 1) * channelSpacing;
+          ? toPos.y - CONVERGE_OFFSET
+          : toPos.y + CONVERGE_OFFSET;
+        points = [
+          fromPos,
+          { x: fromPos.x, y: foldY },
+          { x: toPos.x, y: foldY },
+          toPos,
+        ];
+      } else {
+        // Other wires: fold close to the convergence point, stacked
+        const goingDown = fromPos.y < toPos.y;
+        const foldY = goingDown
+          ? toPos.y - CONVERGE_OFFSET - i * channelSpacing
+          : toPos.y + CONVERGE_OFFSET + i * channelSpacing;
         points = [
           fromPos,
           { x: fromPos.x, y: foldY },
@@ -330,14 +342,26 @@ export function routeWires(
       handledWires.add(wire.id);
 
       let points: { x: number; y: number }[];
-      if (i === 0) {
-        // Closest wire: straight vertical (pin X already aligned to this peer)
+      if (Math.abs(fromPos.x - toPos.x) < EPS) {
+        // Already vertical — straight line
         points = [fromPos, toPos];
+      } else if (i === 0) {
+        // Closest non-vertical wire: L-shaped fold near the source
+        const goingDown = fromPos.y < toPos.y;
+        const foldY = goingDown
+          ? fromPos.y + CONVERGE_OFFSET
+          : fromPos.y - CONVERGE_OFFSET;
+        points = [
+          fromPos,
+          { x: fromPos.x, y: foldY },
+          { x: toPos.x, y: foldY },
+          toPos,
+        ];
       } else {
         const goingDown = fromPos.y < toPos.y;
         const foldY = goingDown
-          ? fromPos.y + CONVERGE_OFFSET + (i - 1) * channelSpacing
-          : fromPos.y - CONVERGE_OFFSET - (i - 1) * channelSpacing;
+          ? fromPos.y + CONVERGE_OFFSET + i * channelSpacing
+          : fromPos.y - CONVERGE_OFFSET - i * channelSpacing;
         points = [
           fromPos,
           { x: fromPos.x, y: foldY },

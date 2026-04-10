@@ -178,22 +178,33 @@ export function resolvePins(
     }
   }
 
-  // ── Step 5: compute position overrides for terminal nodes ──
-  // Terminal nodes (ground, can, etc.) with no pin that connect to a re-spaced pin
-  // should move their center X to align with the wire endpoint
+  // ── Step 5: compute position overrides ──
+  // Move simple nodes (no pins of their own) to align with their connected pin,
+  // so at least one wire in a convergence group is vertical.
   const positionOverrides = new Map<string, number>();
+
+  // Collect pinned connections per node (nodes that don't have pins themselves)
+  const pinnedConnections = new Map<string, number[]>(); // nodeId → [absX of connected pins]
   for (const wire of wires) {
     for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
-      if (!ep.pin) continue;
+      if (!ep.pin || peer.pin) continue;
       const epX = pinXMap.get(`${ep.nodeId}:${ep.pin}`);
       if (epX == null) continue;
-      const epMeta = nodePinsMeta.get(ep.nodeId);
-      if (!epMeta || epMeta.length < 2) continue;
-      if (!peer.pin) {
-        // Terminal node with no pin — move it to align
-        positionOverrides.set(peer.nodeId, epX);
-      }
+      if (!pinnedConnections.has(peer.nodeId)) pinnedConnections.set(peer.nodeId, []);
+      pinnedConnections.get(peer.nodeId)!.push(epX);
     }
+  }
+
+  for (const [nodeId, pinXs] of pinnedConnections) {
+    const peerCenter = positions.get(nodeId);
+    if (!peerCenter) continue;
+    // If only one pinned connection, align to it
+    // If multiple, align to the average (or closest)
+    const targetX = pinXs.length === 1
+      ? pinXs[0]
+      : pinXs.reduce((a, b) => a + b, 0) / pinXs.length;
+    if (Math.abs(peerCenter.x - targetX) < EPS) continue;
+    positionOverrides.set(nodeId, targetX);
   }
 
   return { pinXMap, pinInfoMap, positionOverrides };

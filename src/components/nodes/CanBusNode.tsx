@@ -9,7 +9,7 @@ interface Props {
  * CAN 总线节点 — 两条垂直平行线（CAN-H / CAN-L）
  */
 export function CanBusNode({ label, style }: Props) {
-  const halfGap = 10; // 两线间距 20px
+  const halfGap = 50; // 两线间距 100px
   const halfH = 30;  // 线高度
 
   return (

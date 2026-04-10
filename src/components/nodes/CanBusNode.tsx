@@ -13,8 +13,8 @@ interface Props {
  */
 export function CanBusNode({ label, style, pinInfo }: Props) {
   const busGap = 8;
-  const busHalfLen = 60;
   const forkLen = 10;
+  const busPad = 10; // 总线超出最外侧连接点的余量
 
   const connXs: number[] = pinInfo
     ? pinInfo.map(p => p.xOffset).sort((a, b) => a - b)
@@ -23,8 +23,8 @@ export function CanBusNode({ label, style, pinInfo }: Props) {
   const topY = -busGap / 2;
   const botY = busGap / 2;
 
-  const minX = Math.min(-busHalfLen, ...connXs.map(x => x - 20));
-  const maxX = Math.max(busHalfLen, ...connXs.map(x => x + 20));
+  const minX = Math.min(...connXs) - busPad;
+  const maxX = Math.max(...connXs) + busPad;
 
   return (
     <>

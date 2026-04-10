@@ -200,6 +200,17 @@ export function routeWires(
         }
       }
     }
+
+    // Sync peer pins: if a node's pin was re-spaced, update the connected peer's pin to match
+    for (const wire of wires) {
+      for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
+        if (!ep.pin || !peer.pin) continue;
+        const epX = pinXMap.get(`${ep.nodeId}:${ep.pin}`);
+        if (epX == null) continue;
+        // Align peer pin to this endpoint's resolved X
+        pinXMap.set(`${peer.nodeId}:${peer.pin}`, epX);
+      }
+    }
   }
 
   // Helper: get pin X offset from center

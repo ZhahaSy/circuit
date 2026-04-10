@@ -104,7 +104,9 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
 
     // Post-process: enforce min 100px spacing & keep CAN pins adjacent
     const MIN_PIN_SPACING = 100;
-    for (const [_nodeId, pins] of pinInfoMap) {
+    // Build a lookup: nodeId:pin -> resolved xOffset (absolute, relative to node center)
+    const resolvedPinX = new Map<string, number>();
+    for (const [nodeId, pins] of pinInfoMap) {
       // Process each side independently
       for (const side of ['top', 'bottom'] as const) {
         const sidePins = pins.filter(p => p.side === side);
@@ -125,6 +127,30 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
         const startX = -totalWidth / 2;
         for (let i = 0; i < sidePins.length; i++) {
           sidePins[i].xOffset = startX + i * MIN_PIN_SPACING;
+          if (sidePins[i].label) {
+            resolvedPinX.set(`${nodeId}:${sidePins[i].label!.split('-').pop()}`, sidePins[i].xOffset);
+          }
+        }
+      }
+    }
+
+    // Sync peer pins: update CAN (and other peer) node pin positions to match
+    for (const w of data.wires) {
+      for (const [ep, peer] of [[w.from, w.to], [w.to, w.from]] as const) {
+        if (!ep.pin || !peer.pin) continue;
+        const epResolved = resolvedPinX.get(`${ep.nodeId}:${ep.pin}`);
+        if (epResolved == null) continue;
+        const epCenter = positions.get(ep.nodeId);
+        const peerCenter = positions.get(peer.nodeId);
+        if (!epCenter || !peerCenter) continue;
+        // Convert ep's xOffset (relative to ep center) to absolute, then to peer's xOffset
+        const absX = epCenter.x + epResolved;
+        const peerOffset = absX - peerCenter.x;
+        // Find and update the peer's pin in pinInfoMap
+        const peerPins = pinInfoMap.get(peer.nodeId);
+        if (peerPins) {
+          const peerPin = peerPins.find(p => p.label === `${peer.nodeId}-${peer.pin}`);
+          if (peerPin) peerPin.xOffset = peerOffset;
         }
       }
     }

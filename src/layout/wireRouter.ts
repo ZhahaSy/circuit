@@ -74,6 +74,7 @@ export function routeWires(
   positions: Map<string, NodePosition>,
   nodeMap?: Map<string, CircuitNode>,
   channelSpacing = 12,
+  externalPinXMap?: Map<string, number>,
 ): RoutedWire[] {
   const powerNodeIds = new Set<string>();
   if (nodeMap) {
@@ -82,136 +83,8 @@ export function routeWires(
     }
   }
 
-  // Build pin X position map: pin X aligns directly to the peer node's X
-  // For connector_plug: if a pin has peers on both sides (pass-through), align to
-  // the downstream (bottom) peer so the through-line is straight; others fold in.
-  const pinXMap = new Map<string, number>(); // key: "nodeId:pin" -> absolute X
-
-  // First pass: collect all peers for each connector_plug pin, grouped by side
-  const plugPinPeers = new Map<string, { peerX: number; side: 'top' | 'bottom' }[]>();
-  for (const wire of wires) {
-    for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
-      if (!ep.pin) continue;
-      const epNode = nodeMap?.get(ep.nodeId);
-      if (epNode?.type !== 'connector_plug') continue;
-      const key = `${ep.nodeId}:${ep.pin}`;
-      const epCenter = positions.get(ep.nodeId);
-      const peerCenter = positions.get(peer.nodeId);
-      if (!epCenter || !peerCenter) continue;
-      const side: 'top' | 'bottom' = peerCenter.y < epCenter.y ? 'top' : 'bottom';
-      if (!plugPinPeers.has(key)) plugPinPeers.set(key, []);
-      plugPinPeers.get(key)!.push({ peerX: peerCenter.x, side });
-    }
-  }
-  // Resolve connector_plug pin X
-  for (const [key, peers] of plugPinPeers) {
-    const topPeers = peers.filter(p => p.side === 'top');
-    const bottomPeers = peers.filter(p => p.side === 'bottom');
-    if (topPeers.length > 0 && bottomPeers.length > 0) {
-      // Pass-through pin: align to the downstream (bottom) peer for a straight through-line
-      pinXMap.set(key, bottomPeers[0].peerX);
-    } else {
-      // Single-side: align to the only peer
-      pinXMap.set(key, peers[0].peerX);
-    }
-  }
-
-  // CAN bus pins: fixed offsets (pin 0 = CAN-H at -5, pin 1 = CAN-L at +5)
-  const CAN_PIN_OFFSETS: Record<string, number> = { '0': -50, '1': 50 };
-  for (const wire of wires) {
-    for (const ep of [wire.from, wire.to]) {
-      if (!ep.pin) continue;
-      const epNode = nodeMap?.get(ep.nodeId);
-      if (epNode?.type !== 'can') continue;
-      const key = `${ep.nodeId}:${ep.pin}`;
-      if (pinXMap.has(key)) continue;
-      const center = positions.get(ep.nodeId);
-      if (!center) continue;
-      const offset = CAN_PIN_OFFSETS[ep.pin] ?? 0;
-      pinXMap.set(key, center.x + offset);
-    }
-  }
-
-  // Second pass: non-connector_plug pins — align to peer's resolved pin X if available
-  for (const wire of wires) {
-    for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
-      if (!ep.pin) continue;
-      const key = `${ep.nodeId}:${ep.pin}`;
-      if (pinXMap.has(key)) continue;
-      // If peer has a resolved pin position, align to that
-      if (peer.pin) {
-        const peerPinX = pinXMap.get(`${peer.nodeId}:${peer.pin}`);
-        if (peerPinX != null) {
-          pinXMap.set(key, peerPinX);
-          continue;
-        }
-      }
-      const peerCenter = positions.get(peer.nodeId);
-      if (!peerCenter) continue;
-      pinXMap.set(key, peerCenter.x);
-    }
-  }
-
-  // Post-process: enforce min 100px spacing & keep CAN pins adjacent per node+side
-  const MIN_PIN_SPACING = 100;
-  {
-    // Collect all resolved pins grouped by nodeId
-    const nodePins = new Map<string, { pin: string; absX: number; peerY: number; isCan: boolean }[]>();
-    for (const wire of wires) {
-      for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
-        if (!ep.pin) continue;
-        const key = `${ep.nodeId}:${ep.pin}`;
-        const absX = pinXMap.get(key);
-        if (absX == null) continue;
-        const peerCenter = positions.get(peer.nodeId);
-        const nodeCenter = positions.get(ep.nodeId);
-        if (!peerCenter || !nodeCenter) continue;
-        const peerNode = nodeMap?.get(peer.nodeId);
-        if (!nodePins.has(ep.nodeId)) nodePins.set(ep.nodeId, []);
-        const existing = nodePins.get(ep.nodeId)!;
-        if (!existing.some(p => p.pin === ep.pin)) {
-          existing.push({ pin: ep.pin, absX, peerY: peerCenter.y, isCan: peerNode?.type === 'can' });
-        }
-      }
-    }
-
-    for (const [nodeId, pins] of nodePins) {
-      const nodeCenter = positions.get(nodeId);
-      if (!nodeCenter || pins.length < 2) continue;
-
-      for (const side of ['top', 'bottom'] as const) {
-        const sidePins = pins.filter(p =>
-          side === 'top' ? p.peerY < nodeCenter.y : p.peerY >= nodeCenter.y
-        );
-        if (sidePins.length < 2) continue;
-
-        // Sort: CAN pins last (adjacent), then by absX
-        sidePins.sort((a, b) => {
-          if (a.isCan && !b.isCan) return 1;
-          if (!a.isCan && b.isCan) return -1;
-          return a.absX - b.absX;
-        });
-
-        const totalWidth = (sidePins.length - 1) * MIN_PIN_SPACING;
-        const startX = nodeCenter.x - totalWidth / 2;
-        for (let i = 0; i < sidePins.length; i++) {
-          const newX = startX + i * MIN_PIN_SPACING;
-          pinXMap.set(`${nodeId}:${sidePins[i].pin}`, newX);
-        }
-      }
-    }
-
-    // Sync peer pins: if a node's pin was re-spaced, update the connected peer's pin to match
-    for (const wire of wires) {
-      for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
-        if (!ep.pin || !peer.pin) continue;
-        const epX = pinXMap.get(`${ep.nodeId}:${ep.pin}`);
-        if (epX == null) continue;
-        // Align peer pin to this endpoint's resolved X
-        pinXMap.set(`${peer.nodeId}:${peer.pin}`, epX);
-      }
-    }
-  }
+  // Use external pinXMap if provided (single source of truth from pinResolver)
+  const pinXMap = externalPinXMap ?? new Map<string, number>();
 
   // Helper: get pin X offset from center
   function pinXOffset(nodeId: string, pin: string | undefined): number {

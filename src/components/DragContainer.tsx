@@ -1,4 +1,5 @@
 import type { CircuitNode, NodePosition, NodeStyleConfig, PinRuleConfig } from '../types';
+import type { PinInfo } from '../layout/pinResolver';
 import { PowerNode } from './nodes/PowerNode';
 import { GroundNode } from './nodes/GroundNode';
 import { FuseNode } from './nodes/FuseNode';
@@ -11,11 +12,7 @@ import { ConnectorPlugNode } from './nodes/ConnectorPlugNode';
 import { CanBusNode } from './nodes/CanBusNode';
 import { CustomSvgNode } from './nodes/CustomSvgNode';
 
-export interface PinInfo {
-  xOffset: number;
-  side: 'top' | 'bottom';
-  label?: string; // e.g. "IP25-1"
-}
+export type { PinInfo };
 
 interface Props {
   node: CircuitNode;
@@ -71,7 +68,7 @@ export function DragContainer({ node, pos, style, pinRules, pinInfo, onPointerDo
       case 'relay':
         return <RelayNode label={node.label} sublabel={node.sublabel} style={style} />;
       case 'can':
-        return <CanBusNode label={node.label} style={style} />;
+        return <CanBusNode label={node.label} style={style} pinInfo={pinInfo} />;
       default:
         return (
           <>

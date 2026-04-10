@@ -3,6 +3,7 @@ import type { CircuitData, LayerConfig, NodePosition, StyleConfig, WireRuleConfi
 import type { PowerBusInfo } from '../layout/computePositions';
 import { LAYOUT, computeLayerYPositions } from '../layout/computePositions';
 import { routeWires } from '../layout/wireRouter';
+import { resolvePins } from '../layout/pinResolver';
 import { resolveNodeStyle, resolveWireStyle } from '../styles/defaultStyles';
 import { WirePath } from './WirePath';
 import { DragContainer } from './DragContainer';
@@ -32,128 +33,10 @@ interface Props {
 export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
   ({ data, positions, styleConfig, layers, wireRules, pinRules, powerBuses, busBarTopY, onPointerDown, onPointerMove, onPointerUp, onLayerReorder }, ref) => {
     const nodeMap = new Map(data.nodes.map(n => [n.id, n]));
-    const routed = routeWires(data.wires, positions, nodeMap);
+    const { pinXMap, pinInfoMap } = resolvePins(data.wires, positions, nodeMap);
+    const routed = routeWires(data.wires, positions, nodeMap, 12, pinXMap);
     const layerYMap = computeLayerYPositions(layers);
     const internalSvgRef = useRef<SVGSVGElement | null>(null);
-
-    // Compute pin info per node: X offset (relative to center) + direction (top/bottom) + label
-    // For connector_plug: if pass-through (peers on both sides), align to downstream peer
-    const plugPinPeers = new Map<string, { peerX: number; side: 'top' | 'bottom' }[]>();
-    const pinInfoMap = new Map<string, { xOffset: number; side: 'top' | 'bottom'; label?: string }[]>();
-    const seenPinKeys = new Set<string>();
-
-    // First pass: collect connector_plug pin peers
-    for (const w of data.wires) {
-      for (const [ep, peer] of [[w.from, w.to], [w.to, w.from]] as const) {
-        if (!ep.pin) continue;
-        const epNode = nodeMap.get(ep.nodeId);
-        if (epNode?.type !== 'connector_plug') continue;
-        const nodeCenter = positions.get(ep.nodeId);
-        const peerCenter = positions.get(peer.nodeId);
-        if (!nodeCenter || !peerCenter) continue;
-        const key = `${ep.nodeId}:${ep.pin}`;
-        const side: 'top' | 'bottom' = peerCenter.y < nodeCenter.y ? 'top' : 'bottom';
-        if (!plugPinPeers.has(key)) plugPinPeers.set(key, []);
-        plugPinPeers.get(key)!.push({ peerX: peerCenter.x, side });
-      }
-    }
-    // Resolve connector_plug pin xOffset: pass-through → downstream peer; single-side → only peer
-    const plugPinXOffset = new Map<string, number>();
-    for (const [key, peers] of plugPinPeers) {
-      const nodeId = key.split(':')[0];
-      const nodeCenter = positions.get(nodeId);
-      if (!nodeCenter) continue;
-      const topPeers = peers.filter(p => p.side === 'top');
-      const bottomPeers = peers.filter(p => p.side === 'bottom');
-      if (topPeers.length > 0 && bottomPeers.length > 0) {
-        plugPinXOffset.set(key, bottomPeers[0].peerX - nodeCenter.x);
-      } else {
-        plugPinXOffset.set(key, peers[0].peerX - nodeCenter.x);
-      }
-    }
-
-    // Second pass: build pinInfoMap
-    for (const w of data.wires) {
-      for (const [ep, peer] of [[w.from, w.to], [w.to, w.from]] as const) {
-        const pinKey = ep.pin ?? `__nopin_${peer.nodeId}`;
-        const key = `${ep.nodeId}:${pinKey}`;
-        if (seenPinKeys.has(key)) continue;
-        seenPinKeys.add(key);
-        const nodeCenter = positions.get(ep.nodeId);
-        const peerCenter = positions.get(peer.nodeId);
-        if (!nodeCenter || !peerCenter) continue;
-        const epNode = nodeMap.get(ep.nodeId);
-        const peerNode = nodeMap.get(peer.nodeId);
-        let xOffset: number;
-        if (epNode?.type === 'connector_plug' && ep.pin) {
-          xOffset = plugPinXOffset.get(`${ep.nodeId}:${ep.pin}`) ?? 0;
-        } else if (peerNode?.type === 'can' && peer.pin) {
-          // CAN bus pins have fixed offsets: pin 0 = -5 (CAN-H), pin 1 = +5 (CAN-L)
-          const canPinOffset = peer.pin === '0' ? -50 : peer.pin === '1' ? 50 : 0;
-          xOffset = peerCenter.x + canPinOffset - nodeCenter.x;
-        } else {
-          xOffset = ep.pin ? peerCenter.x - nodeCenter.x : 0;
-        }
-        const side: 'top' | 'bottom' = peerCenter.y < nodeCenter.y ? 'top' : 'bottom';
-        const label = ep.pin ? `${ep.nodeId}-${ep.pin}` : undefined;
-        const peerIsCan = peerNode?.type === 'can';
-        if (!pinInfoMap.has(ep.nodeId)) pinInfoMap.set(ep.nodeId, []);
-        pinInfoMap.get(ep.nodeId)!.push({ xOffset, side, label, _canGroup: peerIsCan ? peer.nodeId : undefined });
-      }
-    }
-
-    // Post-process: enforce min 100px spacing & keep CAN pins adjacent
-    const MIN_PIN_SPACING = 100;
-    // Build a lookup: nodeId:pin -> resolved xOffset (absolute, relative to node center)
-    const resolvedPinX = new Map<string, number>();
-    for (const [nodeId, pins] of pinInfoMap) {
-      // Process each side independently
-      for (const side of ['top', 'bottom'] as const) {
-        const sidePins = pins.filter(p => p.side === side);
-        if (sidePins.length < 2) continue;
-
-        // Sort: CAN-grouped pins adjacent, then by original xOffset
-        sidePins.sort((a, b) => {
-          const aGroup = (a as any)._canGroup ?? '';
-          const bGroup = (b as any)._canGroup ?? '';
-          if (aGroup && aGroup === bGroup) return a.xOffset - b.xOffset;
-          if (aGroup && !bGroup) return 1;
-          if (!aGroup && bGroup) return -1;
-          return a.xOffset - b.xOffset;
-        });
-
-        // Re-space with minimum gap
-        const totalWidth = (sidePins.length - 1) * MIN_PIN_SPACING;
-        const startX = -totalWidth / 2;
-        for (let i = 0; i < sidePins.length; i++) {
-          sidePins[i].xOffset = startX + i * MIN_PIN_SPACING;
-          if (sidePins[i].label) {
-            resolvedPinX.set(`${nodeId}:${sidePins[i].label!.split('-').pop()}`, sidePins[i].xOffset);
-          }
-        }
-      }
-    }
-
-    // Sync peer pins: update CAN (and other peer) node pin positions to match
-    for (const w of data.wires) {
-      for (const [ep, peer] of [[w.from, w.to], [w.to, w.from]] as const) {
-        if (!ep.pin || !peer.pin) continue;
-        const epResolved = resolvedPinX.get(`${ep.nodeId}:${ep.pin}`);
-        if (epResolved == null) continue;
-        const epCenter = positions.get(ep.nodeId);
-        const peerCenter = positions.get(peer.nodeId);
-        if (!epCenter || !peerCenter) continue;
-        // Convert ep's xOffset (relative to ep center) to absolute, then to peer's xOffset
-        const absX = epCenter.x + epResolved;
-        const peerOffset = absX - peerCenter.x;
-        // Find and update the peer's pin in pinInfoMap
-        const peerPins = pinInfoMap.get(peer.nodeId);
-        if (peerPins) {
-          const peerPin = peerPins.find(p => p.label === `${peer.nodeId}-${peer.pin}`);
-          if (peerPin) peerPin.xOffset = peerOffset;
-        }
-      }
-    }
 
     const [layerDrag, setLayerDrag] = useState<LayerDragState | null>(null);
     const [hoveredWireId, setHoveredWireId] = useState<string | null>(null);

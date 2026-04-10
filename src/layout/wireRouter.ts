@@ -87,9 +87,9 @@ export function routeWires(
   const pinXMap = externalPinXMap ?? new Map<string, number>();
 
   // Helper: get pin X offset from center
-  function pinXOffset(nodeId: string, pin: string | undefined): number {
-    if (!pin) return 0;
-    const key = `${nodeId}:${pin}`;
+  // Also checks virtual pin entries (for no-pin endpoints aligned by pinResolver)
+  function pinXOffsetForWire(nodeId: string, pin: string | undefined, wireId: string): number {
+    const key = pin ? `${nodeId}:${pin}` : `${nodeId}:__wire_${wireId}`;
     const absX = pinXMap.get(key);
     if (absX == null) return 0;
     const center = positions.get(nodeId);
@@ -126,7 +126,7 @@ export function routeWires(
       const otherCenter = positions.get(otherNodeId)!;
       const otherNode = nodeMap?.get(otherNodeId);
 
-      const pOffset = pinXOffset(otherNodeId, otherPin);
+      const pOffset = pinXOffsetForWire(otherNodeId, otherPin, wire.id);
       const busX = otherCenter.x + pOffset;
       const busY = powerPos.y;
       const otherPortY = otherNode
@@ -146,8 +146,8 @@ export function routeWires(
       ? getPortY(toCenter.y, fromCenter.y, toNode.type)
       : toCenter.y;
 
-    const fromPinOffset = pinXOffset(wire.from.nodeId, wire.from.pin);
-    const toPinOffset = pinXOffset(wire.to.nodeId, wire.to.pin);
+    const fromPinOffset = pinXOffsetForWire(wire.from.nodeId, wire.from.pin, wire.id);
+    const toPinOffset = pinXOffsetForWire(wire.to.nodeId, wire.to.pin, wire.id);
 
     const fromPos = { x: fromCenter.x + fromPinOffset, y: fromPortY };
     const toPos = { x: toCenter.x + toPinOffset, y: toPortY };

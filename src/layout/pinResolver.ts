@@ -129,13 +129,19 @@ export function resolvePins(
   // After re-spacing, the peer end of each wire must align
   for (const wire of wires) {
     for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
-      if (!ep.pin || !peer.pin) continue;
+      if (!ep.pin) continue;
       const epX = pinXMap.get(`${ep.nodeId}:${ep.pin}`);
       if (epX == null) continue;
-      // Only sync if ep was re-spaced (has metadata) and peer wasn't
+      // Only sync if ep was re-spaced (has multiple pins on same side)
       const epMeta = nodePinsMeta.get(ep.nodeId);
       if (!epMeta || epMeta.length < 2) continue;
-      pinXMap.set(`${peer.nodeId}:${peer.pin}`, epX);
+      if (peer.pin) {
+        // Peer has a pin — align it
+        pinXMap.set(`${peer.nodeId}:${peer.pin}`, epX);
+      } else {
+        // Peer has no pin (e.g. ground) — create a virtual entry so wireRouter aligns
+        pinXMap.set(`${peer.nodeId}:__wire_${wire.id}`, epX);
+      }
     }
   }
 

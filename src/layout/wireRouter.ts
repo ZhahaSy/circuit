@@ -268,9 +268,9 @@ export function routeWires(
     const fromPos = { x: fromCenter.x + fromPinOffset, y: fromPortY };
     const toPos = { x: toCenter.x + toPinOffset, y: toPortY };
 
-    if (Math.abs(fromCenter.x - toCenter.x) < EPS) {
+    if (Math.abs(fromPos.x - toPos.x) < EPS) {
       // Vertical wire — group by X for offset
-      const key = Math.round(fromCenter.x);
+      const key = Math.round(fromPos.x);
       if (!straightByX.has(key)) straightByX.set(key, []);
       straightByX.get(key)!.push({ wire, fromPos, toPos });
     } else {

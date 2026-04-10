@@ -180,32 +180,30 @@ export function resolvePins(
   }
 
   // ── Step 5: compute position overrides ──
-  // Move simple nodes (no pins of their own) to align with their connected pin,
-  // so at least one wire in a convergence group is vertical.
+  // Only move TERMINAL nodes (single wire connection, no pins) to align with their
+  // connected pin. Do NOT move intermediate nodes like splices that have multiple
+  // connections — they should stay in place and let wires fold to converge.
   const positionOverrides = new Map<string, number>();
 
-  // Collect pinned connections per node (nodes that don't have pins themselves)
-  const pinnedConnections = new Map<string, number[]>(); // nodeId → [absX of connected pins]
+  // Count wires per node
+  const nodeWireCount = new Map<string, number>();
+  for (const wire of wires) {
+    nodeWireCount.set(wire.from.nodeId, (nodeWireCount.get(wire.from.nodeId) ?? 0) + 1);
+    nodeWireCount.set(wire.to.nodeId, (nodeWireCount.get(wire.to.nodeId) ?? 0) + 1);
+  }
+
   for (const wire of wires) {
     for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
       if (!ep.pin || peer.pin) continue;
       const epX = pinXMap.get(`${ep.nodeId}:${ep.pin}`);
       if (epX == null) continue;
-      if (!pinnedConnections.has(peer.nodeId)) pinnedConnections.set(peer.nodeId, []);
-      pinnedConnections.get(peer.nodeId)!.push(epX);
+      const peerCenter = positions.get(peer.nodeId);
+      if (!peerCenter) continue;
+      // Only move terminal nodes (single connection)
+      if ((nodeWireCount.get(peer.nodeId) ?? 0) > 1) continue;
+      if (Math.abs(peerCenter.x - epX) < EPS) continue;
+      positionOverrides.set(peer.nodeId, epX);
     }
-  }
-
-  for (const [nodeId, pinXs] of pinnedConnections) {
-    const peerCenter = positions.get(nodeId);
-    if (!peerCenter) continue;
-    // If only one pinned connection, align to it
-    // If multiple, align to the average (or closest)
-    const targetX = pinXs.length === 1
-      ? pinXs[0]
-      : pinXs.reduce((a, b) => a + b, 0) / pinXs.length;
-    if (Math.abs(peerCenter.x - targetX) < EPS) continue;
-    positionOverrides.set(nodeId, targetX);
   }
 
   return { pinXMap, pinInfoMap, positionOverrides };

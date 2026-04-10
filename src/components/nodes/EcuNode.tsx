@@ -20,23 +20,24 @@ export function EcuNode({ label, sublabel, style, pinInfo }: Props) {
   if (items.length === 1) {
     const p = items[0];
     const isTop = p.side === 'top';
-    // 针脚线
-    const lineY1 = isTop ? -10 : 10;
-    const lineY2 = isTop ? -38 : 38;
+    const px = p.xOffset;
+    // 针脚线与 wireRouter port offset 一致（±38）
+    const lineY1 = isTop ? -38 : 38;
+    const lineY2 = 0;
     // 文字在针脚线的另一侧
-    const textY = isTop ? 6 : -4;
-    const pinLabelY = isTop ? -14 : 18;
+    const textY = isTop ? 14 : -6;
+    const pinLabelY = isTop ? -26 : 30;
     return (
       <>
-        <line x1={0} y1={lineY1} x2={0} y2={lineY2} stroke="#333" strokeWidth={1.5} />
-        <text x={0} y={textY} textAnchor="middle" fontSize={style.fontSize} fontWeight="bold" fill={style.textColor}>
+        <line x1={px} y1={lineY2} x2={px} y2={lineY1} stroke="#333" strokeWidth={1.5} />
+        <text x={px} y={textY} textAnchor="middle" fontSize={style.fontSize} fontWeight="bold" fill={style.textColor}>
           {label}
         </text>
         {sublabel && (
-          <text x={0} y={textY + 12} textAnchor="middle" fontSize={8} fill="#333">{sublabel}</text>
+          <text x={px} y={textY + 12} textAnchor="middle" fontSize={8} fill="#333">{sublabel}</text>
         )}
         {p.label && (
-          <text x={4} y={pinLabelY} textAnchor="start" fontSize={7} fill="#555">{p.label}</text>
+          <text x={px + 4} y={pinLabelY} textAnchor="start" fontSize={7} fill="#555">{p.label}</text>
         )}
       </>
     );

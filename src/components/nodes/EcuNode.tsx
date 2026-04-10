@@ -15,6 +15,33 @@ interface Props {
  */
 export function EcuNode({ label, sublabel, style, pinInfo }: Props) {
   const items = pinInfo && pinInfo.length > 0 ? pinInfo : [{ xOffset: 0, side: 'bottom' as const }];
+
+  // 单针脚模式：不画矩形，只显示名称和针脚信息
+  if (items.length === 1) {
+    const p = items[0];
+    const isTop = p.side === 'top';
+    // 针脚线
+    const lineY1 = isTop ? -10 : 10;
+    const lineY2 = isTop ? -38 : 38;
+    // 文字在针脚线的另一侧
+    const textY = isTop ? 6 : -4;
+    const pinLabelY = isTop ? -14 : 18;
+    return (
+      <>
+        <line x1={0} y1={lineY1} x2={0} y2={lineY2} stroke="#333" strokeWidth={1.5} />
+        <text x={0} y={textY} textAnchor="middle" fontSize={style.fontSize} fontWeight="bold" fill={style.textColor}>
+          {label}
+        </text>
+        {sublabel && (
+          <text x={0} y={textY + 12} textAnchor="middle" fontSize={8} fill="#333">{sublabel}</text>
+        )}
+        {p.label && (
+          <text x={4} y={pinLabelY} textAnchor="start" fontSize={7} fill="#555">{p.label}</text>
+        )}
+      </>
+    );
+  }
+
   // Auto-size rect to cover all pin positions
   const allX = items.map(p => p.xOffset);
   const minOff = Math.min(0, ...allX);

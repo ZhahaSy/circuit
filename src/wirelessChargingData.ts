@@ -23,6 +23,7 @@ export const wirelessChargingCircuit: CircuitData = {
 
     // ═══ ECU/模块层 ═══
     { id: 'IP25', type: 'ecu', label: '无线充电模块' },
+    { id: 'BD106', type: 'ecu', label: '车身控制器' },
 
     // // ═══ 接头/接点层 ═══
     { id: 'S75', type: 'splice', label: 'S75' },
@@ -62,6 +63,7 @@ export const wirelessChargingCircuit: CircuitData = {
     { id: 'w17', from: { nodeId: 'IP25', pin: '3' }, to: { nodeId: 'GI021' }, color: 'Br', gauge: 0.5 },
     { id: 'w18', from: { nodeId: 'IP25', pin: '4' }, to: { nodeId: 'PRI-CAN', pin: '0' }, color: 'G', gauge: 0.5 },
     { id: 'w19', from: { nodeId: 'IP25', pin: '5' }, to: { nodeId: 'PRI-CAN', pin: '1' }, color: 'G/W', gauge: 0.5 },
+    { id: 'w20', from: { nodeId: 'IP25', pin: '6' }, to: { nodeId: 'BD106', pin: '1' }, color: 'W', gauge: 0.5 },
   ],
   fuseBoxes: [
     { id: 'IPJB_A2', label: '仪表电器盒', children: ['IF07', 'IF29'] },

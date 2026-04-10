@@ -13,6 +13,7 @@ import type { CircuitNode, NodePosition, Wire } from '../types';
  */
 
 const MIN_PIN_SPACING = 100;
+const EPS = 0.5;
 
 export interface PinResolveResult {
   /** key: "nodeId:pin" → absolute X */

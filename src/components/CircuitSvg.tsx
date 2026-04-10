@@ -33,8 +33,18 @@ interface Props {
 export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
   ({ data, positions, styleConfig, layers, wireRules, pinRules, powerBuses, busBarTopY, onPointerDown, onPointerMove, onPointerUp, onLayerReorder }, ref) => {
     const nodeMap = new Map(data.nodes.map(n => [n.id, n]));
-    const { pinXMap, pinInfoMap } = resolvePins(data.wires, positions, nodeMap);
-    const routed = routeWires(data.wires, positions, nodeMap, 12, pinXMap);
+    const { pinXMap, pinInfoMap, positionOverrides } = resolvePins(data.wires, positions, nodeMap);
+
+    // Apply position overrides: move terminal nodes to align with re-spaced pins
+    const effectivePositions = new Map(positions);
+    for (const [nodeId, newX] of positionOverrides) {
+      const pos = effectivePositions.get(nodeId);
+      if (pos) {
+        effectivePositions.set(nodeId, { ...pos, x: newX });
+      }
+    }
+
+    const routed = routeWires(data.wires, effectivePositions, nodeMap, 12, pinXMap);
     const layerYMap = computeLayerYPositions(layers);
     const internalSvgRef = useRef<SVGSVGElement | null>(null);
 
@@ -170,7 +180,7 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
 
         {/* 保险丝盒 */}
         {(data.fuseBoxes ?? []).map((fb: FuseBoxConfig) => {
-          const childPositions = fb.children.map(id => positions.get(id)).filter(Boolean) as NodePosition[];
+          const childPositions = fb.children.map(id => effectivePositions.get(id)).filter(Boolean) as NodePosition[];
           if (childPositions.length === 0) return null;
           const minX = Math.min(...childPositions.map(p => p.x)) - 50;
           const maxX = Math.max(...childPositions.map(p => p.x)) + 50;
@@ -193,7 +203,7 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
           {(() => {
             // 计算所有 fuseBox 的边界矩形
             const fuseBoxBounds = (data.fuseBoxes ?? []).map(fb => {
-              const childPositions = fb.children.map(id => positions.get(id)).filter(Boolean) as NodePosition[];
+              const childPositions = fb.children.map(id => effectivePositions.get(id)).filter(Boolean) as NodePosition[];
               if (childPositions.length === 0) return null;
               return {
                 minX: Math.min(...childPositions.map(p => p.x)) - 50,
@@ -245,7 +255,7 @@ export const CircuitSvg = forwardRef<SVGSVGElement, Props>(
         <g id="nodes">
           {data.nodes.map((node) => {
             if (powerNodeIds.has(node.id)) return null;
-            const pos = positions.get(node.id);
+            const pos = effectivePositions.get(node.id);
             if (!pos) return null;
             const ns = resolveNodeStyle(node.id, node.type, styleConfig);
             return (

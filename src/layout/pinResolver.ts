@@ -19,6 +19,8 @@ export interface PinResolveResult {
   pinXMap: Map<string, number>;
   /** key: nodeId → pin info array for rendering */
   pinInfoMap: Map<string, PinInfo[]>;
+  /** key: nodeId → new X position (for terminal nodes that should move to align with their pin) */
+  positionOverrides: Map<string, number>;
 }
 
 export interface PinInfo {
@@ -176,5 +178,23 @@ export function resolvePins(
     }
   }
 
-  return { pinXMap, pinInfoMap };
+  // ── Step 5: compute position overrides for terminal nodes ──
+  // Terminal nodes (ground, can, etc.) with no pin that connect to a re-spaced pin
+  // should move their center X to align with the wire endpoint
+  const positionOverrides = new Map<string, number>();
+  for (const wire of wires) {
+    for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
+      if (!ep.pin) continue;
+      const epX = pinXMap.get(`${ep.nodeId}:${ep.pin}`);
+      if (epX == null) continue;
+      const epMeta = nodePinsMeta.get(ep.nodeId);
+      if (!epMeta || epMeta.length < 2) continue;
+      if (!peer.pin) {
+        // Terminal node with no pin — move it to align
+        positionOverrides.set(peer.nodeId, epX);
+      }
+    }
+  }
+
+  return { pinXMap, pinInfoMap, positionOverrides };
 }

@@ -132,12 +132,20 @@ export function routeWires(
     }
   }
 
-  // Second pass: non-connector_plug pins
+  // Second pass: non-connector_plug pins — align to peer's resolved pin X if available
   for (const wire of wires) {
     for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
       if (!ep.pin) continue;
       const key = `${ep.nodeId}:${ep.pin}`;
       if (pinXMap.has(key)) continue;
+      // If peer has a resolved pin position, align to that
+      if (peer.pin) {
+        const peerPinX = pinXMap.get(`${peer.nodeId}:${peer.pin}`);
+        if (peerPinX != null) {
+          pinXMap.set(key, peerPinX);
+          continue;
+        }
+      }
       const peerCenter = positions.get(peer.nodeId);
       if (!peerCenter) continue;
       pinXMap.set(key, peerCenter.x);

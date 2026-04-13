@@ -359,7 +359,7 @@ export function computePositions(
     : 0;
 
   // ── Non-power layer Y positions (shifted below bus bar) ──
-  const nonPowerTopMargin = busBarHeight > 0 ? busBarTopY + busBarHeight + 20 : LAYOUT.topMargin;
+  const nonPowerTopMargin = busBarHeight > 0 ? busBarTopY + busBarHeight + 60 : LAYOUT.topMargin;
   const layerYMap = computeLayerYPositionsWithOffset(nonPowerLayers, nonPowerTopMargin, layoutRules);
 
   // ── Build nodeId → Y mapping ──

@@ -135,11 +135,9 @@ export function resolvePins(
           sidePins[i].absX = sidePins[i + 1].absX - MIN_PIN_SPACING;
         }
       }
-      // Center the result around node center
-      const currentCenter = (sidePins[0].absX + sidePins[sidePins.length - 1].absX) / 2;
-      const shift = nodeCenter.x - currentCenter;
+      // No centering — keep pins at their ideal X so at least one aligns with its peer
       for (const sp of sidePins) {
-        pinXMap.set(`${nodeId}:${sp.pin}`, sp.absX + shift);
+        pinXMap.set(`${nodeId}:${sp.pin}`, sp.absX);
       }
     }
   }

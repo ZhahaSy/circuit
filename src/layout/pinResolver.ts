@@ -120,10 +120,26 @@ export function resolvePins(
         return a.absX - b.absX;
       });
 
-      const totalWidth = (sidePins.length - 1) * MIN_PIN_SPACING;
-      const startX = nodeCenter.x - totalWidth / 2;
-      for (let i = 0; i < sidePins.length; i++) {
-        pinXMap.set(`${nodeId}:${sidePins[i].pin}`, startX + i * MIN_PIN_SPACING);
+      // Preserve ideal X positions from Step 2, only push apart where spacing is insufficient
+      // Pass 1: left-to-right, enforce min spacing
+      for (let i = 1; i < sidePins.length; i++) {
+        const gap = sidePins[i].absX - sidePins[i - 1].absX;
+        if (gap < MIN_PIN_SPACING) {
+          sidePins[i].absX = sidePins[i - 1].absX + MIN_PIN_SPACING;
+        }
+      }
+      // Pass 2: right-to-left, enforce min spacing (in case left push caused overlap)
+      for (let i = sidePins.length - 2; i >= 0; i--) {
+        const gap = sidePins[i + 1].absX - sidePins[i].absX;
+        if (gap < MIN_PIN_SPACING) {
+          sidePins[i].absX = sidePins[i + 1].absX - MIN_PIN_SPACING;
+        }
+      }
+      // Center the result around node center
+      const currentCenter = (sidePins[0].absX + sidePins[sidePins.length - 1].absX) / 2;
+      const shift = nodeCenter.x - currentCenter;
+      for (const sp of sidePins) {
+        pinXMap.set(`${nodeId}:${sp.pin}`, sp.absX + shift);
       }
     }
   }

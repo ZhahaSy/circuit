@@ -199,9 +199,6 @@ export function resolvePins(
   }
 
   // ── Step 5: compute position overrides ──
-  // Only move TERMINAL nodes (single wire connection, no pins) to align with their
-  // connected pin. Do NOT move intermediate nodes like splices that have multiple
-  // connections — they should stay in place and let wires fold to converge.
   const positionOverrides = new Map<string, number>();
 
   // Count wires per node
@@ -211,6 +208,7 @@ export function resolvePins(
     nodeWireCount.set(wire.to.nodeId, (nodeWireCount.get(wire.to.nodeId) ?? 0) + 1);
   }
 
+  // 5a: Terminal nodes (single connection) align to their connected pin
   for (const wire of wires) {
     for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
       if (!ep.pin || peer.pin) continue;
@@ -218,11 +216,34 @@ export function resolvePins(
       if (epX == null) continue;
       const peerCenter = positions.get(peer.nodeId);
       if (!peerCenter) continue;
-      // Only move terminal nodes (single connection)
       if ((nodeWireCount.get(peer.nodeId) ?? 0) > 1) continue;
       if (Math.abs(peerCenter.x - epX) < EPS) continue;
       positionOverrides.set(peer.nodeId, epX);
     }
+  }
+
+  // 5b: Splice nodes align to their upstream peer (the one with smaller Y / closer to power)
+  // This makes the upstream→splice segment a straight vertical line,
+  // and the splice→downstream segment uses a fold to converge.
+  for (const node of nodeMap.values()) {
+    if (node.type !== 'splice') continue;
+    const nodePos = positions.get(node.id);
+    if (!nodePos) continue;
+    // Find all peers of this splice
+    const peers: { nodeId: string; y: number; x: number }[] = [];
+    for (const wire of wires) {
+      let peerId: string | null = null;
+      if (wire.from.nodeId === node.id) peerId = wire.to.nodeId;
+      if (wire.to.nodeId === node.id) peerId = wire.from.nodeId;
+      if (!peerId) continue;
+      const peerPos = positions.get(peerId);
+      if (peerPos) peers.push({ nodeId: peerId, y: peerPos.y, x: peerPos.x });
+    }
+    if (peers.length < 2) continue;
+    // Upstream = peer with smallest Y (closest to power at top)
+    const upstream = peers.reduce((a, b) => a.y < b.y ? a : b);
+    if (Math.abs(nodePos.x - upstream.x) < EPS) continue;
+    positionOverrides.set(node.id, upstream.x);
   }
 
   return { pinXMap, pinInfoMap, positionOverrides };

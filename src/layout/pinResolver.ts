@@ -129,20 +129,39 @@ export function resolvePins(
   }
 
   // ── Step 4: sync peer pins to match ──
-  // After re-spacing, the peer end of each wire must align
-  for (const wire of wires) {
-    for (const [ep, peer] of [[wire.from, wire.to], [wire.to, wire.from]] as const) {
+  // After re-spacing, the peer end of each wire must align.
+  // Process nodes with FEWER pins first, so nodes with MORE pins (stronger layout
+  // constraints) overwrite last and become the anchor.
+  const step4Wires = [...wires].sort((a, b) => {
+    const aFromCount = nodePinsMeta.get(a.from.nodeId)?.length ?? 0;
+    const aToCount = nodePinsMeta.get(a.to.nodeId)?.length ?? 0;
+    const aMax = Math.max(aFromCount, aToCount);
+    const bFromCount = nodePinsMeta.get(b.from.nodeId)?.length ?? 0;
+    const bToCount = nodePinsMeta.get(b.to.nodeId)?.length ?? 0;
+    const bMax = Math.max(bFromCount, bToCount);
+    return aMax - bMax;
+  });
+  for (const wire of step4Wires) {
+    // For each wire, the endpoint with MORE pins is the anchor
+    const fromMeta = nodePinsMeta.get(wire.from.nodeId);
+    const toMeta = nodePinsMeta.get(wire.to.nodeId);
+    const fromCount = fromMeta?.length ?? 0;
+    const toCount = toMeta?.length ?? 0;
+
+    // Determine which end is the anchor (more pins = anchor)
+    const pairs: [typeof wire.from, typeof wire.to][] = fromCount >= toCount
+      ? [[wire.from, wire.to]]
+      : [[wire.to, wire.from]];
+
+    for (const [ep, peer] of pairs) {
       if (!ep.pin) continue;
       const epX = pinXMap.get(`${ep.nodeId}:${ep.pin}`);
       if (epX == null) continue;
-      // Only sync if ep was re-spaced (has multiple pins on same side)
       const epMeta = nodePinsMeta.get(ep.nodeId);
       if (!epMeta || epMeta.length < 2) continue;
       if (peer.pin) {
-        // Peer has a pin — align it
         pinXMap.set(`${peer.nodeId}:${peer.pin}`, epX);
       } else {
-        // Peer has no pin (e.g. ground) — create a virtual entry so wireRouter aligns
         pinXMap.set(`${peer.nodeId}:__wire_${wire.id}`, epX);
       }
     }
